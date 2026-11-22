@@ -122,6 +122,55 @@ def env_for(ds: str, mode: str = "continuous") -> dict:
 
 
 # ---- state for the page -------------------------------------------------------------------------
+def _killed_at(d: dict) -> dict:
+    h = next((h for h in reversed(d.get("history") or []) if h.get("stage") == "killed"), {})
+    return {"at": h.get("at") or d.get("updated_at"), "by": h.get("by") or ""}
+
+
+# Which history authors belong to a step, for "ideas this task touched".
+STEP_AUTHORS = {"memory": ("Michael", "orchestrator"), "dedupe": ("scout",), "critic1": ("critic1",), "reviser": ("reviser", "orchestrator"),
+                "critic2": ("critic2",), "logistics": ("logistics",), "demand": ("demand",), "judge": ("judge",),
+                "factcheck": ("factcheck",)}
+STEP_AGENTS = {"memory": ("memory", "decisions")}
+
+
+def node_detail(store: Store, nodes: list[str]) -> dict:
+    """What each graph node did in the latest run: timing, usage, log lines, ideas touched, extras."""
+    runs = store.runs()
+    run = runs[-1] if runs else {}
+    rn, by = run.get("nodes") or {}, (run.get("usage") or {}).get("by_node") or {}
+    ideas = store.ideas()
+    out = []
+    for n in nodes:
+        if n not in DAG:
+            continue
+        step = DAG[n][0]
+        info = rn.get(n) or {}
+        t0, t1 = info.get("started_at") or "", info.get("ended_at") or ""
+        within = (lambda t: bool(t0) and t0 <= (t or "") and (not t1 or (t or "") <= t1 + "~"))
+        agents = STEP_AGENTS.get(step, (step,))
+        log = [e for e in run.get("log") or [] if e.get("agent") in agents + ("error",) and within(e.get("t"))
+               and (e.get("agent") != "error" or step in (e.get("msg") or "") or n in (e.get("msg") or ""))]
+        touched = []
+        authors = STEP_AUTHORS.get(step, ())
+        if authors and t0:
+            for i, d in ideas.items():
+                hs = [h for h in d.get("history") or [] if within(h.get("at")) and str(h.get("by") or "").startswith(authors)]
+                if hs:
+                    touched.append({"id": i, "title": d.get("title") or i, "stage_now": d.get("stage"),
+                                    "notes": [f"{h.get('stage')}: {h.get('note') or ''}".strip(": ") for h in hs][-3:]})
+        extra = {}
+        if step == "scouts":
+            extra["scouts"] = [{"scout": k, "angle": v.get("angle"), "ideas": [x.get("title") for x in v.get("ideas") or []],
+                                "signals": len(v.get("signals") or [])} for k, v in (run.get("scout_output") or {}).items()]
+        if step == "trends":
+            extra["trends"] = run.get("trends") or []
+        out.append({"node": n, "step": step, "status": info.get("status") or "", "started_at": t0, "ended_at": t1,
+                    "model": config.ROLE_MODEL.get(NODE_ROLE[step]) if NODE_ROLE.get(step) else None,
+                    "usage": by.get(n) or {}, "log": log[-12:], "ideas": sorted(touched, key=lambda x: x["title"].lower()),
+                    **extra})
+    return {"run": run.get("_id"), "nodes": out}
+
 def state(ds: str) -> dict:
     root = data_dir(ds)
     if root is None:
@@ -139,12 +188,13 @@ def state(ds: str) -> dict:
                      "kind": d.get("kind"), "lane": d.get("lane"), "source": d.get("source"),
                      "updated_at": d.get("updated_at") or "", "rev_count": d.get("rev_count") or 0,
                      "last": {"by": h.get("by"), "note": (h.get("note") or "")[:140], "at": h.get("at")},
-                     "touched": touched, "decided": is_protected(d)})
+                     "touched": touched, "decided": is_protected(d),
+                     **({"stage_note": (d.get("stage_note") or "")[:240], "killed_at": _killed_at(d)} if d.get("stage") == "killed" else {})})
     q = memory.queues(ideas, datetime.now(timezone.utc))
     run_out = None
     if run:
         run_out = {k: run.get(k) for k in ("_id", "status", "run_type", "started_at", "ended_at", "phase", "plan",
-                                           "nodes", "usage", "stopped_reason", "stopped_at_phase", "digest", "backend",
+                                           "nodes", "usage", "stopped_reason", "stopped_at_phase", "digest", "backend", "summary",
                                            "counts", "angles")}
         run_out["log"] = (run.get("log") or [])[-120:]
     return {
@@ -193,6 +243,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, PAGE or (WEB / "index.html").read_bytes(), "text/html; charset=utf-8")
         if u.path == "/api/state":
             return self._json(state(ds))
+        if u.path == "/api/nodes":
+            root = data_dir(ds)
+            if root is None:
+                return self._json({"error": "no data"}, 404)
+            return self._json(node_detail(Store(root), [x for x in qs.get("nodes", "").split(",") if x]))
         if u.path == "/api/idea":
             root = data_dir(ds)
             d = Store(root).get("ideas", qs.get("id", "")) if root else None

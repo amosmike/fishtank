@@ -63,6 +63,9 @@
   .phase .state { font-size: 12px; font-weight: 650; color: var(--muted); margin-top: 6px; }
   .phase .steps { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 6px; font-size: 12px; color: var(--muted); }
   .phase .mx { font: 11px var(--mono); color: var(--muted); margin-top: 4px; min-height: 14px; }
+  .phase { cursor: pointer; user-select: none; }
+  .phase:hover { border-color: var(--accent); }
+  .phase:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .phase.running { border-color: var(--run); background: var(--run-soft); }
   .phase.waiting { border-color: var(--accent); border-style: dashed; }
   .phase.waiting .state { color: var(--accent); }
@@ -138,6 +141,27 @@
   details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
   label.tog { font-size: 13px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
 
+  /* phase details */
+  dialog.wide { width: min(980px, 96vw); }
+  .task { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-top: 12px; }
+  .task h3 { margin: 0; font-size: 15px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .task .meta { font: 11.5px var(--mono); color: var(--muted); margin: 4px 0 8px; }
+  .task p { margin: 0 0 8px; font-size: 13px; }
+  .task h4 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 10px 0 4px; }
+  .task ul { margin: 0; padding-left: 18px; font-size: 13px; }
+  .task li { margin: 2px 0; }
+  .rows { display: grid; gap: 4px; }
+  .row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px; align-items: baseline; text-align: left; width: 100%;
+         background: var(--sunk); border: 1px solid transparent; border-radius: 8px; padding: 6px 10px; font-size: 13px; }
+  .row:hover { border-color: var(--accent); }
+  .row small { display: block; color: var(--muted); font-size: 12px; }
+  table.killed { width: 100%; border-collapse: collapse; font-size: 13px; }
+  table.killed th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+  table.killed th, table.killed td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  table.killed tbody tr { cursor: pointer; }
+  table.killed tbody tr:hover td { background: var(--sunk); }
+  table.killed td.when { white-space: nowrap; font: 12px var(--mono); color: var(--muted); }
+
   /* drawer */
   dialog { border: 1px solid var(--line); border-radius: 14px; padding: 0; width: min(720px, 94vw); background: var(--surface); color: var(--ink); }
   dialog::backdrop { background: rgba(0,0,0,.35); }
@@ -185,7 +209,9 @@
     This dashboard server is older than this page, so some controls (like step by step) won't work.
     Stop it with Ctrl-C and run <code>python -m idea_lab serve --open</code> again.</p>
   <section class="panel" aria-labelledby="pipe-h">
-    <h2 id="pipe-h">Pipeline <span id="runid" class="note"></span></h2>
+    <h2 id="pipe-h" style="display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap">
+      <span>Pipeline <span id="runid" class="note"></span></span>
+      <span class="note" style="text-transform:none;letter-spacing:0;font-weight:500">Double-click a phase for the tasks inside it</span></h2>
     <div class="phases" id="pipe"></div>
     <div class="guide" id="guide" aria-live="polite"></div>
     <div class="meters" id="meters"></div>
@@ -195,6 +221,7 @@
   <section class="panel">
     <div class="tabs" role="tablist">
       <button type="button" class="tab" role="tab" id="tab-ideas" aria-controls="pane-ideas" aria-selected="true">Ideas</button>
+      <button type="button" class="tab" role="tab" id="tab-killed" aria-controls="pane-killed" aria-selected="false">Killed <span class="count" id="killedCount">0</span></button>
       <button type="button" class="tab" role="tab" id="tab-log" aria-controls="pane-log" aria-selected="false">Log <span class="count" id="logCount">0</span></button>
     </div>
     <div id="pane-ideas" role="tabpanel" aria-labelledby="tab-ideas">
@@ -202,6 +229,9 @@
         <label class="tog"><input type="checkbox" id="onlyRun"> Only ideas this run touched</label>
       </div>
       <div class="board" id="board"></div>
+    </div>
+    <div id="pane-killed" role="tabpanel" aria-labelledby="tab-killed" hidden>
+      <table class="killed"><thead><tr><th>Idea</th><th>Why</th><th>By</th><th>When</th></tr></thead><tbody id="killed"></tbody></table>
     </div>
     <div id="pane-log" role="tabpanel" aria-labelledby="tab-log" hidden>
       <div class="grid2">
@@ -238,7 +268,6 @@
     ["validated", "Validated", s => s === "validated"],
     ["shortlisted", "Shortlisted (top 6)", s => s === "shortlisted"],
     ["judged", "Judged", s => s === "judged"],
-    ["killed", "Killed", s => s === "killed"],
     ["decided", "Decided", s => ["selected", "parked", "rejected", "building", "hosted"].includes(s)],
   ];
   const CAP = 40;
@@ -362,7 +391,7 @@
       }).join("");
       const u = usageOf(st, ns);
       const m = u.calls ? `${u.calls} call${u.calls === 1 ? "" : "s"} · ${fmt(u.tok)} tokens` : "";
-      return `<div class="phase ${phase}"><div class="n">${k + 1}</div><h3>${esc(title)}</h3><div class="sub">${esc(sub)}</div>
+      return `<div class="phase ${phase}" data-phase="${k}" tabindex="0" role="button" aria-label="${esc(title)}: details"><div class="n">${k + 1}</div><h3>${esc(title)}</h3><div class="sub">${esc(sub)}</div>
         <div class="state">${STATE[phase]}</div><div class="steps">${steps}</div><div class="mx">${m}</div></div>`;
     }).join("");
     const live = Object.values(run.nodes || {}).filter(v => v.status === "running").length;
@@ -404,6 +433,17 @@
     }).join("");
   }
 
+  function renderKilled(st) {
+    const only = $("onlyRun").checked;
+    const rows = st.ideas.filter(i => i.stage === "killed" && (!only || i.touched))
+                         .sort((a, b) => ((b.killed_at || {}).at || "").localeCompare((a.killed_at || {}).at || ""));
+    $("killedCount").textContent = rows.length;
+    const html = rows.length ? rows.map(i => `<tr data-id="${esc(i.id)}" tabindex="0"><td><b>${esc(i.title)}</b>${i.touched ? ` <span class="chip">this run</span>` : ""}</td>
+        <td>${esc(i.stage_note || "")}</td><td>${esc((i.killed_at || {}).by || "")}</td><td class="when">${esc(((i.killed_at || {}).at || "").slice(0, 16).replace("T", " "))}</td></tr>`).join("")
+      : `<tr><td colspan="4" class="note">Nothing killed${only ? " in this run" : ""}.</td></tr>`;
+    if (html !== renderKilled.html) { $("killed").innerHTML = html; renderKilled.html = html; }
+  }
+
   function renderLog(st) {
     const log = ((st.run || {}).log || []).slice().reverse();
     $("log").innerHTML = log.length ? log.map(e => `<div><time>${time(e.t)}</time><span class="ag ${e.agent === "error" ? "error" : ""}">${esc(e.agent)}</span>${esc(e.msg)}</div>`).join("")
@@ -443,15 +483,54 @@
       if (!st.available) {
         $("pipe").innerHTML = `<p class="note">No real data found. Clone the private data repo into <code>data/</code>, or use the demo.</p>`;
         $("board").innerHTML = ""; $("log").innerHTML = ""; $("meters").innerHTML = "";
-      } else { renderPipe(st); renderGuide(st); renderBoard(st); renderLog(st); }
+      } else { renderPipe(st); renderGuide(st); renderBoard(st); renderKilled(st); renderLog(st); }
       renderControls(st);
     } catch (e) { $("status").textContent = "server unreachable"; $("status").className = "pill error"; }
     busy = false;
   }
 
+  // ---- phase details ----
+  const dur = (a, b) => {
+    if (!a || !b) return "";
+    const ms = new Date(b) - new Date(a);
+    return isNaN(ms) || ms < 0 ? "" : ms < 1000 ? ms + " ms" : ms < 60000 ? (ms / 1000).toFixed(1) + " s"
+         : Math.floor(ms / 60000) + " min " + Math.round(ms % 60000 / 1000) + " s";
+  };
+  let openPhaseIndex = null;
+  async function openPhase(k) {
+    openPhaseIndex = k;
+    const [title, sub, ns] = PHASES[k];
+    const known = last && last.layout ? ns.filter(n => last.layout.flat().includes(n)) : ns;
+    const d = await fetch(`/api/nodes?ds=${ds}&nodes=${known.join(",")}`).then(r => r.json());
+    const tasks = (d.nodes || []).map(t => {
+      const s = t.status || "pending", u = t.usage || {};
+      const use = u.calls ? `${u.calls} call${u.calls === 1 ? "" : "s"} · ${fmt(u.budget_tokens ?? u.tokens)} tokens · ${u.searches || 0} searches · ~$${(u.cost_usd || 0).toFixed(2)}` : "";
+      const what = t.log.length ? `<ul>${t.log.map(e => `<li>${esc(e.msg)}</li>`).join("")}</ul>`
+                 : `<p class="note">${s === "idle" ? "Nothing to do this time." : s === "skipped" ? "Skipped: the budget was hit."
+                                       : s === "off" ? "Not part of this run." : s === "pending" || s === "waiting" ? "Hasn't run yet." : "No log lines."}</p>`;
+      const ideas = t.ideas.length ? `<h4>Ideas it touched (${t.ideas.length})</h4><div class="rows">${t.ideas.map(i =>
+          `<button type="button" class="row" data-idea="${esc(i.id)}"><span>${esc(i.title)}<small>${esc(i.notes.join(" · "))}</small></span>
+           <span class="chip">${esc(i.stage_now || "")}</span></button>`).join("")}</div>` : "";
+      const scouts = (t.scouts || []).length ? `<h4>Scouts</h4><ul>${t.scouts.map(x => `<li><b>${esc(x.scout)}</b> · ${esc(x.angle || "")}<br>
+          ${x.ideas.length} ideas: ${esc(x.ideas.join(", "))} · ${x.signals} signals</li>`).join("")}</ul>` : "";
+      const trends = (t.trends || []).length ? `<h4>Trends found</h4><ul>${t.trends.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : "";
+      return `<section class="task"><h3>${esc(INFO[t.node][0])} <span class="chip"><i class="dot ${s}"></i>${esc(STATE[s] || s)}</span></h3>
+        <div class="meta">${esc(INFO[t.node][2])}${t.started_at ? " · took " + dur(t.started_at, t.ended_at) : ""}${use ? " · " + use : ""}</div>
+        <p>${esc(INFO[t.node][1])}</p><h4>What it did</h4>${what}${scouts}${trends}${ideas}</section>`;
+    }).join("");
+    $("dlg").classList.add("wide");
+    $("dlgBody").innerHTML = `<h2>${k + 1}. ${esc(title)}</h2><p class="note" style="margin:0">${esc(sub)}${d.run ? " · run " + esc(d.run) : ""}</p>
+      ${tasks}<div class="acts"><span class="spacer"></span><button data-close>Close</button></div>`;
+    if (!$("dlg").open) $("dlg").showModal();
+    $("dlgBody").scrollTop = 0;
+  }
+  $("pipe").addEventListener("dblclick", e => { const c = e.target.closest(".phase"); if (c) openPhase(Number(c.dataset.phase)); });
+  $("pipe").addEventListener("keydown", e => { const c = e.target.closest(".phase"); if (c && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openPhase(Number(c.dataset.phase)); } });
+  $("dlg").addEventListener("close", () => { $("dlg").classList.remove("wide"); openPhaseIndex = null; });
+
   // ---- idea drawer ----
   const W = [["demand",3],["audience",2],["gap",2],["build",2],["share",2],["ads",1],["fun",1]];
-  async function openIdea(id) {
+  async function openIdea(id, back = null) {
     const d = await fetch(`/api/idea?ds=${ds}&id=${encodeURIComponent(id)}`).then(r => r.json());
     const s = d.scores || {};
     const scores = d.scores ? `<div class="scores">${W.map(([k, w]) => `<div class="sc"><div class="lbl"><span>${k} ×${w}</span><b>${s[k] ?? "–"}/5</b></div>
@@ -468,13 +547,19 @@
       ${d.stage_note ? `<p><b>Stage note:</b> ${esc(d.stage_note)}</p>` : ""}
       ${scores}${d.judge_notes ? `<p class="note">${esc(d.judge_notes)}</p>` : ""}
       <h3 style="font-size:13px;margin:16px 0 0">History</h3><div class="tl">${hist}</div>
-      <div class="acts">${canDecide ? `<button data-dec="selected" class="primary">Pick it</button><button data-dec="parked">Park</button>
+      <div class="acts">${back !== null ? `<button data-back>← Back</button>` : ""}${canDecide ? `<button data-dec="selected" class="primary">Pick it</button><button data-dec="parked">Park</button>
         <button data-dec="rejected">Reject</button>` : ""}<span class="spacer"></span><button data-close>Close</button></div>`;
+    $("dlgBody").dataset.back = back === null ? "" : String(back);
     $("dlgBody").dataset.id = id;
-    $("dlg").showModal();
+    if (back === null) $("dlg").classList.remove("wide");
+    if (!$("dlg").open) $("dlg").showModal();
+    $("dlgBody").scrollTop = 0;
   }
   $("dlgBody").addEventListener("click", async e => {
-    if (e.target.dataset.close !== undefined) return $("dlg").close();
+    if (e.target.closest("button[data-close]")) return $("dlg").close();
+    if (e.target.closest("button[data-back]")) return openPhase(Number($("dlgBody").dataset.back));
+    const row = e.target.closest("[data-idea]");
+    if (row) return openIdea(row.dataset.idea, openPhaseIndex);
     const st = e.target.dataset.dec;
     if (!st) return;
     const text = prompt(`Why ${st === "selected" ? "pick" : st === "parked" ? "park" : "reject"} it? (your words go into every agent's brief)`, "") ?? null;
@@ -488,7 +573,7 @@
 
   // ---- tabs ----
   function showTab(name) {
-    for (const t of ["ideas", "log"]) {
+    for (const t of ["ideas", "killed", "log"]) {
       $("tab-" + t).setAttribute("aria-selected", String(t === name));
       $("pane-" + t).hidden = t !== name;
     }
@@ -496,7 +581,8 @@
   }
   $("tab-ideas").addEventListener("click", () => showTab("ideas"));
   $("tab-log").addEventListener("click", () => showTab("log"));
-  try { if (localStorage.getItem("fishtank:tab") === "log") showTab("log"); } catch {}
+  $("tab-killed").addEventListener("click", () => showTab("killed"));
+  try { const t = localStorage.getItem("fishtank:tab"); if (t === "log" || t === "killed") showTab(t); } catch {}
 
   // ---- controls ----
   document.querySelectorAll("[data-ds]").forEach(b => b.addEventListener("click", () => {
@@ -505,7 +591,9 @@
     document.querySelectorAll("[data-ds]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
     poll();
   }));
-  $("onlyRun").addEventListener("change", () => last && renderBoard(last));
+  $("onlyRun").addEventListener("change", () => last && (renderBoard(last), renderKilled(last)));
+  $("killed").addEventListener("click", e => { const r = e.target.closest("tr[data-id]"); if (r) openIdea(r.dataset.id); });
+  $("killed").addEventListener("keydown", e => { const r = e.target.closest("tr[data-id]"); if (r && e.key === "Enter") openIdea(r.dataset.id); });
   $("dry").addEventListener("click", async () => {
     $("dry").disabled = true;
     const r = await post("/api/dryrun", {ds, plan: $("plan").value});

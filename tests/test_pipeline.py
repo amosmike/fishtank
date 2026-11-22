@@ -474,6 +474,28 @@ class IdleSteps(unittest.TestCase):
             shutil.rmtree(tmp)
 
 
+class PhaseDetails(unittest.TestCase):
+    def test_phase_details_after_a_demo_run(self):
+        from idea_lab import demo, serve
+        tmp, store = temp_store()
+        try:
+            with mock.patch.object(config, "BACKEND", "demo"), mock.patch.object(demo, "DELAY", 0), \
+                    mock.patch.object(config, "OUT", tmp / "out"), mock.patch.object(config, "STATE", tmp / ".state"):
+                ctx = nodes.Ctx(store, llm.Budget(), "dash")
+                store.put("runs", "dash", {"started_at": "2026-11-16T09:00:00Z", "status": "running", "log": []})
+                graph.run(ctx, {"run_id": "dash", "run_type": "discovery", "plan": graph.make_plan("discovery"),
+                                "judge_scope": "changed", "done": []}, engine="plain")
+            d = serve.node_detail(store, ["critic1_queued", "scouts", "nonsense"])
+            self.assertEqual([n["node"] for n in d["nodes"]], ["critic1_queued", "scouts"])
+            c1 = d["nodes"][0]
+            self.assertIn("mine-spreadsheet-golf", [i["id"] for i in c1["ideas"]])  # the owner's idea, critiqued first
+            self.assertTrue(c1["log"] and c1["started_at"] and c1["usage"]["calls"] >= 1)
+            self.assertEqual(len(d["nodes"][1]["scouts"]), 3)
+            self.assertTrue(all(s["ideas"] for s in d["nodes"][1]["scouts"]))
+        finally:
+            shutil.rmtree(tmp)
+
+
 class StepMode(unittest.TestCase):
     def test_each_step_waits_until_released(self):
         import threading
