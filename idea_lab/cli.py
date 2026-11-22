@@ -207,8 +207,7 @@ def cmd_eval(a) -> int:
 
 def cmd_serve(a) -> int:
     from .serve import serve
-    serve(a.port, a.open)
-    return 0
+    return serve(a.port, a.open)
 
 
 def cmd_view(a) -> int:

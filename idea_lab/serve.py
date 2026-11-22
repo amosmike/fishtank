@@ -225,13 +225,35 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"error": "not found"}, 404)
 
 
-def serve(port: int = 8765, open_browser: bool = False) -> None:
+def _already_ours(url: str) -> bool:
+    import urllib.request
+    try:
+        with urllib.request.urlopen(url + "/api/state?ds=demo", timeout=2) as r:
+            return "dataset" in json.loads(r.read())
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def serve(port: int = 8765, open_browser: bool = False) -> int:
+    import errno
+    import webbrowser
+
     ensure_demo()
-    httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     url = f"http://127.0.0.1:{port}"
+    try:
+        httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    except OSError as e:
+        if e.errno != errno.EADDRINUSE:
+            raise
+        if _already_ours(url):
+            print(f"The Fishtank dashboard is already running at {url}", flush=True)
+            if open_browser:
+                webbrowser.open(url)
+            return 0
+        print(f"Port {port} is in use by something else. Try: python -m idea_lab serve --port {port + 1}", file=sys.stderr)
+        return 2
     print(f"Fishtank dashboard on {url}  (Ctrl-C to stop)", flush=True)
     if open_browser:
-        import webbrowser
         webbrowser.open(url)
     try:
         httpd.serve_forever()
@@ -240,3 +262,4 @@ def serve(port: int = 8765, open_browser: bool = False) -> None:
     finally:
         RUNNER.stop()
         httpd.server_close()
+    return 0
