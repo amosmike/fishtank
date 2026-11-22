@@ -1,12 +1,10 @@
 """One way to call a model: `call(role, task, payload, schema, budget=...)` -> dict.
 
 Two backends, picked by config.BACKEND / IDEA_LAB_BACKEND:
-- "cli": headless Claude Code (`claude -p`) on Michael's subscription (no API key). Web search is
-  Claude Code's WebSearch/WebFetch tools; searches are counted from the stream and capped by the
-  prompt plus --max-turns.
+- "cli": headless Claude Code (`claude -p`) on Michael's subscription (no API key), locally and in CI
+  (a `claude setup-token` token). Web search is Claude Code's WebSearch/WebFetch tools; searches are
+  counted from the stream and capped by the prompt plus --max-turns.
 - "demo": simulated agents (idea_lab/demo.py), no network, no tokens; for watching a run.
-- "api": the Anthropic API with the server-side web_search tool and `max_uses` (hard cap).
-  Optional; reads ANTHROPIC_API_KEY. (CI uses the CLI with a `claude setup-token` token.)
 
 Every call records tokens and searches into the run's Budget, per node.
 """
@@ -49,7 +47,7 @@ class Usage:
     cache_write_tokens: int = 0
     searches: int = 0
     calls: int = 0
-    cost_usd: float = 0.0  # API: estimated from config prices. CLI: Claude Code's notional cost.
+    cost_usd: float = 0.0  # Claude Code's API-equivalent cost (not a bill on a subscription)
 
     @property
     def tokens(self) -> int:
@@ -144,9 +142,10 @@ def call(role: str, payload: dict, schema: dict, *, node: str, budget: Budget,
     system = load_prompt(prompt_role or role)
     user = (f"{search_note(n)}\n{extra}\n\nReturn ONLY the JSON object described by the output schema.\n\n"
             f"TASK INPUT (JSON):\n{json.dumps(payload, ensure_ascii=False, indent=1)}")
-    backend = _cli_call if config.BACKEND == "cli" else _api_call
+    if config.BACKEND != "cli":
+        raise LimitError(f"unknown backend {config.BACKEND!r} (use cli or demo)")
     with _SLOTS:
-        data, usage = backend(model, effort, system, user, schema, n)
+        data, usage = _cli_call(model, effort, system, user, schema, n)
     budget.record(node, usage)
     return data
 
@@ -158,7 +157,8 @@ _LIMIT_RE = ("usage limit", "rate limit", "limit reached", "429", "overloaded", 
 
 def _cli_call(model: str, effort: str, system: str, user: str, schema: dict, searches: int):
     tools = "WebSearch,WebFetch" if searches > 0 else ""
-    argv = [config.CLAUDE_BIN, "-p", user, "--model", model, "--effort", effort,
+    # The task goes in on stdin: as an argument it would hit Linux's 128 KB per-argument limit.
+    argv = [config.CLAUDE_BIN, "-p", "--model", model, "--effort", effort,
             "--system-prompt", system, "--output-format", "stream-json", "--verbose",
             "--json-schema", json.dumps(schema), "--no-session-persistence",
             "--strict-mcp-config", "--disable-slash-commands", "--tools", tools]
@@ -172,7 +172,7 @@ def _cli_call(model: str, effort: str, system: str, user: str, schema: dict, sea
     # A temp cwd so Claude Code doesn't pick up this repo's CLAUDE.md or settings.
     with tempfile.TemporaryDirectory(prefix="idea-lab-") as cwd:
         try:
-            p = subprocess.run(argv, cwd=cwd, env=env, capture_output=True, text=True,
+            p = subprocess.run(argv, input=user, cwd=cwd, env=env, capture_output=True, text=True,
                                timeout=config.CALL_TIMEOUT_S)
         except FileNotFoundError as e:
             raise LimitError(f"can't run {config.CLAUDE_BIN!r}: is Claude Code installed?") from e
@@ -225,73 +225,6 @@ def parse_stream(stdout: str, stderr: str = "", code: int = 0):
     if not isinstance(data, dict):
         raise ModelError("no structured output in claude result")
     return data, usage
-
-
-# ---- API backend ---------------------------------------------------------------------------------
-_client = None
-
-
-def _api_call(model: str, effort: str, system: str, user: str, schema: dict, searches: int):
-    global _client
-    try:
-        import anthropic
-    except ImportError as e:  # pragma: no cover
-        raise LimitError("the api backend needs `pip install anthropic`") from e
-    if _client is None:
-        _client = anthropic.Anthropic()
-    kwargs: dict = {
-        "model": model, "max_tokens": 32000, "system": system,
-        "output_config": {"effort": effort, "format": {"type": "json_schema", "schema": schema}},
-    }
-    if searches > 0:
-        kwargs["tools"] = [{"type": "web_search_20260209", "name": "web_search", "max_uses": searches}]
-    betas = []
-    if not model.startswith("claude-haiku"):
-        # Server-side fallback if a safety classifier declines (Opus 5.5 / Sonnet 5.5).
-        betas.append("server-side-fallback-2026-07-01")
-        kwargs["fallbacks"] = "default"
-    messages = [{"role": "user", "content": user}]
-    usage = Usage(calls=1)
-    try:
-        for _ in range(6):  # initial request + up to 5 pause_turn continuations
-            with _client.beta.messages.stream(messages=messages, betas=betas, **kwargs) as s:
-                resp = s.get_final_message()
-            _add_api_usage(usage, model, resp.usage)
-            if resp.stop_reason == "pause_turn":
-                messages = [messages[0], {"role": "assistant", "content": resp.content}]
-                continue
-            break
-    except anthropic.RateLimitError as e:
-        raise LimitError(f"rate limited: {e}") from e
-    except anthropic.AuthenticationError as e:
-        raise LimitError(f"API key problem: {e}") from e
-    except anthropic.APIStatusError as e:
-        raise ModelError(f"API {e.status_code}: {e}") from e
-    except anthropic.APIConnectionError as e:
-        raise ModelError(f"connection: {e}") from e
-    if resp.stop_reason == "refusal":
-        raise ModelError("model refused")
-    if resp.stop_reason == "max_tokens":
-        raise ModelError("output hit max_tokens")
-    text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
-    data = _json_from_text(text)
-    if not isinstance(data, dict):
-        raise ModelError("no JSON in API response")
-    return data, usage
-
-
-def _add_api_usage(usage: Usage, model: str, u) -> None:
-    usage.input_tokens += int(getattr(u, "input_tokens", 0) or 0)
-    usage.output_tokens += int(getattr(u, "output_tokens", 0) or 0)
-    usage.cache_read_tokens += int(getattr(u, "cache_read_input_tokens", 0) or 0)
-    usage.cache_write_tokens += int(getattr(u, "cache_creation_input_tokens", 0) or 0)
-    stu = getattr(u, "server_tool_use", None)
-    n = int(getattr(stu, "web_search_requests", 0) or 0) if stu else 0
-    usage.searches += n
-    pin, pout = config.PRICE_PER_MTOK.get(model, (0, 0))
-    usage.cost_usd = round(usage.cost_usd + (getattr(u, "input_tokens", 0) or 0) / 1e6 * pin
-                           + (getattr(u, "output_tokens", 0) or 0) / 1e6 * pout
-                           + n * config.PRICE_PER_SEARCH, 4)
 
 
 def _json_from_text(text: str):

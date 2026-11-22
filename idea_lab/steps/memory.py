@@ -8,9 +8,8 @@ from __future__ import annotations
 from collections import Counter
 from datetime import date, datetime, timedelta
 
-from .. import config, dice
-from ..rules import (LEADERBOARD_STAGES, PROTECTED_STAGES, has_new_evidence, is_michaels, is_protected,
-                     leaderboard, stale, top_n)
+from .. import config
+from ..rules import PROTECTED_STAGES, has_new_evidence, is_michaels, leaderboard, stale, top_n
 from ..store import Store, parse_ts
 
 REVIVE_REASONS = ("needs a better angle", "needs a data source", "needs data source")
@@ -214,17 +213,9 @@ def brief(store: Store, now: datetime, for_role: str = "scout") -> dict:
     return b
 
 
-def recent_runs_dice(store: Store) -> set:
-    return dice.recent_pairs(store.runs())
-
-
 def saturated(ideas: dict[str, dict]) -> bool:
     """SATURATION GUARD: 8+ ideas in revising -> discovery behaves as maintenance."""
     return sum(1 for d in ideas.values() if d.get("stage") == "revising") >= 8
-
-
-def undecided_leaderboard(ideas: dict[str, dict]) -> list[str]:
-    return [i for i, d in ideas.items() if d.get("stage") in LEADERBOARD_STAGES and not is_protected(d)]
 
 
 __all__ = ["queues", "brief", "factcheck_targets", "needs_revision", "needs_critic2", "parked_revivable",

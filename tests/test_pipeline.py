@@ -94,6 +94,26 @@ class Decisions(unittest.TestCase):
         self.assertIn("ignored", log[-1])  # config edits never come from the viewer
         self.assertTrue((inbox / "applied" / "c.json").exists())
 
+    def test_bad_entry_is_skipped_not_fatal_and_good_ones_apply_once(self):
+        f = self.tmp / "d.yaml"
+        f.write_text("decisions:\n  - id: tide-ready\n    status: parked\n    text: later\n"
+                     "  - id: no-such-idea\n    status: rejected\n  - id: kettle-cost\n    status: maybe\n")
+        for _ in range(2):  # a second run must not re-apply the good entry
+            log = decisions.apply_all(self.store, f, self.tmp / "inbox")
+            self.assertEqual(sum(line.startswith("skipped") for line in log), 2, log)
+        self.assertEqual(self.store.idea("tide-ready")["stage"], "parked")
+        self.assertEqual(sum("later" in (h.get("note") or "") for h in self.store.idea("tide-ready")["history"]), 1)
+
+    def test_bad_viewer_op_is_skipped(self):
+        inbox = self.tmp / "inbox"
+        inbox.mkdir()
+        (inbox / "c.json").write_text(json.dumps({"ops": [
+            {"op": "update", "path": "ideas/gone", "data": {"stage": "rejected"}},
+            {"op": "update", "path": "ideas/sow-what", "data": {"stage": "selected"}}]}))
+        log = decisions.apply_all(self.store, self.tmp / "none.yaml", inbox)
+        self.assertIn("skipped", log[0])
+        self.assertEqual(self.store.idea("sow-what")["stage"], "selected")
+
 
 class Dedupe(unittest.TestCase):
     def test_code_drops_near_titles(self):
@@ -122,6 +142,21 @@ class StreamParse(unittest.TestCase):
         data, u = llm.parse_stream("\n".join(json.dumps(x) for x in lines))
         self.assertEqual(data, {"a": 1})
         self.assertEqual((u.searches, u.tokens, u.budget_tokens), (2, 115, 25))
+
+    def test_task_goes_in_on_stdin_not_argv(self):
+        # Linux caps one argument at 128 KB; real judge batches are already close to that.
+        seen = {}
+
+        def fake_run(argv, input=None, **kw):
+            seen.update(argv=argv, input=input)
+            out = json.dumps({"type": "result", "is_error": False, "structured_output": {"ok": True}, "usage": {}})
+            return mock.Mock(stdout=out, stderr="", returncode=0)
+
+        big = {"blob": "x" * 200_000}
+        with mock.patch.object(llm.subprocess, "run", fake_run), mock.patch.object(config, "BACKEND", "cli"):
+            self.assertEqual(llm.call("judge", big, {}, node="judge", budget=llm.Budget()), {"ok": True})
+        self.assertIn("x" * 200_000, seen["input"])
+        self.assertLess(max(len(a) for a in seen["argv"]), 100_000)
 
     def test_limit_error(self):
         out = json.dumps({"type": "result", "is_error": True, "result": "usage limit reached|123"})
@@ -271,6 +306,68 @@ class Resilience(unittest.TestCase):
             self.assertTrue(any(e["agent"] == "error" and "factcheck" in e["msg"] for e in run["log"]))
         finally:
             shutil.rmtree(tmp)
+
+    def test_a_crash_marks_the_run_failed_not_running(self):
+        from idea_lab import cli
+        tmp, store = temp_store()
+
+        def crash(role, *a, **k):
+            if role == "judge":
+                raise RuntimeError("bug (simulated)")
+            return fake_call(role, *a, **k)
+
+        try:
+            store.update_run(RUN, {"status": "running"})
+            with mock.patch.object(llm, "call", crash), self.assertRaises(RuntimeError):
+                cli._execute(store, RUN, llm.Budget(), self._state(), False, "plain")
+            run = store.run(RUN)
+            self.assertEqual((run["status"], run["stopped_at_phase"]), ("failed", "judge"))
+        finally:
+            shutil.rmtree(tmp)
+
+
+class OldCritiques(unittest.TestCase):
+    """Ideas from the prose prototype store `critique` as plain text, not a dict."""
+
+    def test_judge_and_reviser_read_a_text_critique(self):
+        tmp, store = temp_store()
+        try:
+            d = store.idea("ferry-finder")
+            store.put("ideas", "ferry-finder", {**d, "critique": "Close to an existing ferry site; needs a wedge."})
+            self.assertEqual(nodes.evidence(store.idea("ferry-finder"))["critic_verdict"],
+                             {"text": "Close to an existing ferry site; needs a wedge."})
+            nodes._problem(store.idea("ferry-finder"))  # the reviser's input doesn't crash either
+            with mock.patch.object(llm, "call", fake_call), mock.patch.object(config, "OUT", tmp / "out"), \
+                    mock.patch.dict("os.environ", {"IDEA_LAB_NTFY_TOPIC": ""}):
+                state = {"run_id": RUN, "run_type": "discovery", "plan": graph.make_plan("discovery", ["judge"]),
+                         "judge_scope": "validated", "done": []}
+                graph.run(nodes.Ctx(store, llm.Budget(), RUN), state, engine="plain")
+            self.assertIn(store.idea("ferry-finder")["stage"], ("judged", "shortlisted"))
+            self.assertEqual(store.run(RUN)["status"], "done")
+        finally:
+            shutil.rmtree(tmp)
+
+
+class Dashboard(unittest.TestCase):
+    def test_only_answers_requests_addressed_to_localhost(self):
+        import http.client
+        import threading
+
+        from idea_lab import serve
+        httpd = serve.ThreadingHTTPServer(("127.0.0.1", 0), serve.Handler)
+        port = httpd.server_address[1]
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            def get(host):
+                c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+                c.request("GET", "/", headers={"Host": host})
+                return c.getresponse().status
+            self.assertEqual(get(f"127.0.0.1:{port}"), 200)
+            self.assertEqual(get(f"localhost:{port}"), 200)
+            self.assertEqual(get(f"attacker.example:{port}"), 403)  # a DNS-rebinding page
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
 
 
 class FullRunWithSimulatedAgents(unittest.TestCase):

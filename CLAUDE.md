@@ -7,7 +7,7 @@ Michael's idea factory for his websites: an agent pipeline that generates, criti
   - The real data is a clone of the private repo `amosmike/fishtank-data` in `data/` (gitignored here). It holds the ideas, runs, sites, decisions, eval reports, the v11 playbook (`config/playbook.json`, the reference spec) and the migration brief.
   - `sample_data/` is fictional, with example.com URLs, and is used by the tests, CI and the quick start. Never copy real ideas, notes or decisions into this repo.
   - `IDEA_LAB_DATA` picks the data folder.
-- Models run through the Claude CLI (`claude -p`) by default. That includes CI, which uses a `claude setup-token` token in the `CLAUDE_CODE_OAUTH_TOKEN` secret. `--backend api` (needs `ANTHROPIC_API_KEY`) is optional and unused. Always `--dry-run` first, and don't start paid runs or evals unless Michael asks.
+- Models run through the Claude CLI (`claude -p`). That includes CI, which uses a `claude setup-token` token in the `CLAUDE_CODE_OAUTH_TOKEN` secret. Always `--dry-run` first, and don't start paid runs or evals unless Michael asks.
 - Rules that must hold, each with tests:
   - The pipeline never changes an idea in a decided stage (selected, parked, rejected, building, hosted) except to append history. Only `decisions.py` may override.
   - The judge is blind, and code computes totals and caps.

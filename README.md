@@ -74,8 +74,9 @@ flowchart LR
   - a small model for classification, dedupe and rewrites;
   - a mid-size model for research roles;
   - the strongest model only for the judge.
-- **Backends:** model calls go through the Claude CLI in headless mode by default (locally and in
-  CI), or through the Anthropic API, which uses server-side web search with a hard per-call cap.
+- **Backend:** model calls go through the Claude CLI in headless mode, locally and in CI, with
+  structured output against each role's schema and a per-call search cap. A demo backend swaps in
+  simulated agents.
 - **Storage:** git-tracked JSON, one file per idea and per run. The data lives in a separate private
   repo, and this repo ships a fictional `sample_data/` set with the same shape.
 
@@ -241,10 +242,7 @@ export IDEA_LAB_DATA=sample_data                         # fictional ideas, same
 .venv/bin/python -m idea_lab view && open out/index.html # the leaderboard UI
 ```
 
-Real runs need a model backend:
-
-- **Claude CLI** (`claude`, logged in): the default. In CI, a token from `claude setup-token`.
-- **Anthropic API** (optional): set `ANTHROPIC_API_KEY` and pass `--backend api`.
+Real runs need the Claude CLI (`claude`, logged in). In CI it uses a token from `claude setup-token`.
 
 Useful commands:
 

@@ -1,7 +1,6 @@
 """Close: counts, angle yield, top 6 movement, lessons and the digest. No model."""
 from __future__ import annotations
 
-import json
 import os
 import urllib.request
 from collections import Counter
@@ -155,4 +154,4 @@ def notify(text: str, now: datetime) -> str:
         return f"ntfy failed: {e}"
 
 
-__all__ = ["angle_yield", "digest", "summary", "lessons", "notify", "live_sites_line", "json"]
+__all__ = ["angle_yield", "digest", "summary", "lessons", "notify", "live_sites_line"]

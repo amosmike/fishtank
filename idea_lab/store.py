@@ -13,20 +13,11 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from . import config
-from .rules import PROTECTED_STAGES, is_protected
+from .rules import PROTECTED_STAGES, is_protected, parse_ts
 
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-
-
-def parse_ts(s: str | None) -> datetime | None:
-    if not s:
-        return None
-    try:
-        return datetime.fromisoformat(str(s).replace("Z", "+00:00"))
-    except ValueError:
-        return None
 
 
 def slugify(text: str) -> str:
@@ -36,10 +27,6 @@ def slugify(text: str) -> str:
 
 def dump(doc: dict) -> str:
     return json.dumps(doc, indent=2, ensure_ascii=False) + "\n"
-
-
-class ProtectedIdea(Exception):
-    pass
 
 
 # One lock per document, shared by every Store in the process: parallel graph branches may update
@@ -143,9 +130,6 @@ class Store:
         self.put("ideas", idea_id, doc)
         return doc
 
-    def append_history(self, idea_id: str, by: str, note: str) -> None:
-        self.update_idea(idea_id, {}, by, note)
-
     # ---- runs ---------------------------------------------------------------------------------
     def runs(self) -> list[dict]:
         """All runs, oldest first, each with its id under `_id`."""
@@ -178,4 +162,4 @@ class Store:
         return self.get("config", name, default)
 
 
-__all__ = ["Store", "ProtectedIdea", "PROTECTED_STAGES", "now_iso", "parse_ts", "slugify"]
+__all__ = ["Store", "PROTECTED_STAGES", "now_iso", "parse_ts", "slugify"]

@@ -151,6 +151,12 @@ def _execute(store: Store, run_id: str, budget: llm.Budget, initial, resume: boo
         print(f"\nStopped at {phase}: {e or 'interrupted'}\nResume with: python -m idea_lab run --resume {run_id}",
               file=sys.stderr)
         return 3
+    except Exception as e:  # a bug, not a limit: record it so the run isn't left looking "running"
+        phase = store.run(run_id).get("phase")
+        ctx.save_usage()
+        store.update_run(run_id, {"status": "failed", "stopped_at_phase": phase, "stopped_at": now_iso()},
+                         log=[{"agent": "orchestrator", "msg": f"Failed at {phase}: {type(e).__name__}: {e}"}])
+        raise
     u = budget.total
     print(f"\nUsage: {u.tokens:,} tokens, {u.searches} searches, {u.calls} calls, ~${u.cost_usd:.2f}")
     return 0
@@ -185,8 +191,6 @@ def cmd_apply(a) -> int:
 def cmd_eval(a) -> int:
     from . import evals
     store = Store()
-    if a.backend:
-        config.BACKEND = a.backend
     if a.list:
         for r in evals.history(store) or []:
             print(evals.summary_line(r))
@@ -235,7 +239,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="validated: only newly validated ideas; changed: plus carry-overs with new evidence (default); all: everything")
     r.add_argument("--calibrate", action="store_true", help="re-score every carry-over (judge scope all)")
     r.add_argument("--engine", choices=["auto", "langgraph", "plain"], default="auto")
-    r.add_argument("--backend", choices=["cli", "api", "demo"], help="model backend (default from IDEA_LAB_BACKEND or cli; demo = simulated agents)")
+    r.add_argument("--backend", choices=["cli", "demo"], help="model backend (default from IDEA_LAB_BACKEND or cli; demo = simulated agents)")
     r.add_argument("--force", action="store_true", help="start even if another run started in the last 30 minutes")
     r.set_defaults(fn=cmd_run)
 
@@ -255,7 +259,6 @@ def main(argv: list[str] | None = None) -> int:
     e.add_argument("--folds", type=int, default=3, help="folds for leave-fold-out taste summaries (default 3)")
     e.add_argument("--model", help=f"judge model to evaluate (default {config.ROLE_MODEL['judge']})")
     e.add_argument("--max-usd", type=float, default=5.0, help="stop the eval past this API-equivalent cost")
-    e.add_argument("--backend", choices=["cli", "api"])
     e.add_argument("--dry-run", action="store_true", help="show the planned calls and cost only")
     e.add_argument("--list", action="store_true", help="list past eval reports")
     e.set_defaults(fn=cmd_eval)

@@ -61,6 +61,8 @@ jobs:
           RUN_ARGS: ${{ inputs.args }}
         run: python -m idea_lab run $RUN_ARGS
       - name: Commit changed data to the data repo
+        # Also after a failed or stopped run: what finished is saved, and the next run picks up from it.
+        if: always()
         working-directory: data
         run: |
           git config user.name "fishtank-bot"

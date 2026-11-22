@@ -94,11 +94,11 @@ def newest_evidence_at(idea: dict) -> datetime | None:
     best = None
     for f in EVIDENCE_FIELDS:
         v = idea.get(f)
-        at = _ts(v.get("at")) if isinstance(v, dict) else None
+        at = parse_ts(v.get("at")) if isinstance(v, dict) else None
         if at and (best is None or at > best):
             best = at
     for r in idea.get("revisions") or []:
-        at = _ts(r.get("at"))
+        at = parse_ts(r.get("at"))
         if at and (best is None or at > best):
             best = at
     return best
@@ -108,7 +108,7 @@ def last_scored_at(idea: dict) -> datetime | None:
     best = None
     for h in idea.get("history") or []:
         if h.get("by", "").startswith("judge") or "fact" in h.get("by", ""):
-            at = _ts(h.get("at"))
+            at = parse_ts(h.get("at"))
             if at and (best is None or at > best):
                 best = at
     return best
@@ -228,11 +228,11 @@ def top_n(ideas: dict[str, dict], n: int = 6) -> list[str]:
 
 
 def stale(at: str | None, now: datetime, max_age_days: int) -> bool:
-    t = _ts(at)
+    t = parse_ts(at)
     return t is None or now - t > timedelta(days=max_age_days)
 
 
-def _ts(s) -> datetime | None:
+def parse_ts(s: str | None) -> datetime | None:
     if not s:
         return None
     try:

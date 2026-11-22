@@ -130,9 +130,17 @@ def evidence(d: dict) -> dict:
     if d.get("fact_check"):
         e["fact_check"] = {k: d["fact_check"].get(k) for k in ("status", "summary")}
     crit = d.get("critique2") or d.get("critique") or {}
-    if crit:
+    if isinstance(crit, str):
+        e["critic_verdict"] = {"text": crit}
+    elif crit:
         e["critic_verdict"] = {k: crit.get(k) for k in ("verdict", "fix_worked", "kill_reason")}
     return e
+
+
+def critique(d: dict, key: str) -> dict:
+    """A critic's verdict. Older ideas from the prose prototype store it as plain text."""
+    v = d.get(key) or {}
+    return {"text": v} if isinstance(v, str) else v
 
 
 def trim(d: dict, keys: list[str]) -> dict:
@@ -379,7 +387,7 @@ def critic1_node(state: dict, ctx: Ctx) -> dict:
 def _problem(d: dict) -> dict:
     """What the reviser must fix: the newest critique's fixes, or a logistics blocker, or his parked reason."""
     lg = d.get("logistics") or {}
-    c2, c1 = d.get("critique2") or {}, d.get("critique") or {}
+    c2, c1 = critique(d, "critique2"), critique(d, "critique")
     newest = max([x for x in (c1, c2, lg if lg.get("verdict") == "blocker" else {}) if x.get("at")],
                  key=lambda x: x["at"], default={})
     if newest is lg and lg:
@@ -458,10 +466,10 @@ def critic2_node(state: dict, ctx: Ctx) -> dict:
 
     def payload_for(i):
         d = ideas[i]
-        r1 = d.get("critique") or {}
+        r1 = critique(d, "critique")
         p = _critic_payload(d, i)
         p["change"] = ((d.get("revisions") or [{}])[-1]).get("change", "")
-        p["round1"] = {**trim(r1, ["verdict", "kill_reason", "fixes", "wedge", "serp_note"]),
+        p["round1"] = {**trim(r1, ["verdict", "kill_reason", "fixes", "wedge", "serp_note", "text"]),
                        "competitors": [trim(c, ["name", "url", "weakness"]) for c in (r1.get("competitors") or d.get("competitors") or [])][:6]}
         if (d.get("logistics") or {}).get("verdict") == "blocker":
             p["logistics_blocker"] = trim(d["logistics"], ["blockers", "fixes"])

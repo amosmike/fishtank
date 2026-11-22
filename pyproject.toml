@@ -11,9 +11,7 @@ dependencies = [
 # The LangGraph engine (checkpointed, resumable). Without it, `--engine plain` runs the same nodes
 # in order and resumes from the run file.
 graph = ["langgraph>=0.4", "langgraph-checkpoint-sqlite>=2"]
-# The Anthropic API backend (needed for GitHub Actions). The default backend is `claude -p`.
-api = ["anthropic>=1.0"]
-all = ["fishtank[graph,api]"]
+all = ["fishtank[graph]"]
 
 [tool.setuptools]
 packages = ["idea_lab", "idea_lab.steps", "idea_lab.checks"]

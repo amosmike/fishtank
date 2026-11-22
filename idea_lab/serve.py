@@ -8,7 +8,8 @@ the live log, and each idea's full history. Two datasets:
 - real: your data/ folder, run through the real backend after a dry-run estimate and a confirm.
 
 Runs are subprocesses of `python -m idea_lab run`, so Stop is the same as Ctrl-C (the run is marked
-stopped and can be resumed). The server binds to 127.0.0.1 only, and every POST needs an
+stopped and can be resumed). The server binds to 127.0.0.1 only and answers only requests addressed
+to 127.0.0.1 or localhost (so a DNS-rebinding page can't reach it), and every POST needs an
 X-Fishtank header (browsers won't send a custom header cross-site without a CORS preflight, which
 this server never grants).
 """
@@ -168,7 +169,16 @@ class Handler(BaseHTTPRequestHandler):
     def _json(self, obj, code: int = 200) -> None:
         self._send(code, json.dumps(obj, ensure_ascii=False).encode(), "application/json; charset=utf-8")
 
+    def _local(self) -> bool:
+        port = self.server.server_address[1]
+        if self.headers.get("Host") in (f"127.0.0.1:{port}", f"localhost:{port}"):
+            return True
+        self._json({"error": "bad Host header"}, 403)
+        return False
+
     def do_GET(self):
+        if not self._local():
+            return
         u = urlparse(self.path)
         qs = {k: v[0] for k, v in parse_qs(u.query).items()}
         ds = qs.get("ds", "demo")
@@ -183,6 +193,8 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, b"not found", "text/plain")
 
     def do_POST(self):
+        if not self._local():
+            return
         if self.headers.get("X-Fishtank") != "1":
             return self._json({"error": "missing X-Fishtank header"}, 403)
         n = int(self.headers.get("Content-Length") or 0)

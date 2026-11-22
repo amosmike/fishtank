@@ -19,8 +19,8 @@ PLAYBOOK_VERSION = "code-1"  # the prose playbook was v11; data/config/playbook.
 
 # Which backend runs the models:
 #   "cli": headless Claude Code (`claude -p`), on Michael's subscription, like tools/whatsitfor/draft.mjs.
-#   "api": the Anthropic API (needs ANTHROPIC_API_KEY). Optional: CI also uses "cli", via a
-#          long-lived subscription token from `claude setup-token` (CLAUDE_CODE_OAUTH_TOKEN).
+#          CI too, via a long-lived subscription token from `claude setup-token` (CLAUDE_CODE_OAUTH_TOKEN).
+#   "demo": simulated agents (idea_lab/demo.py), no network, no tokens.
 BACKEND = os.environ.get("IDEA_LAB_BACKEND", "cli")
 
 # Model per role. Cheap model for flags and rewrites, mid model for research, strongest for the judge.
@@ -42,7 +42,7 @@ ROLE_EFFORT = {  # output_config.effort / claude --effort
     "trends": "medium", "scout": "medium", "critic1": "medium", "critic2": "medium",
     "logistics": "medium", "demand": "medium", "factcheck": "medium", "judge": "high",
 }
-# Web searches allowed per call (API: web_search max_uses; CLI: told in the prompt + bounded by max turns).
+# Web searches allowed per call (told in the prompt, bounded by --max-turns, counted from the stream).
 ROLE_SEARCHES = {
     "trends": 15, "scout": 12, "dedupe": 0, "classify": 0, "critic1": 15, "reviser": 0,
     "critic2": 12, "logistics": 6, "demand": 10, "judge": 0, "factcheck": 15,
@@ -68,8 +68,8 @@ RIVAL_CACHE_DAYS = 30
 
 # Run budget. When any is hit the graph skips to judge -> close (the old timebox rule).
 # Tokens counted = fresh input + output + cache writes + a tenth of cache reads (see llm.Usage).
-# USD: API backend = estimated from PRICE_PER_MTOK; cli backend = Claude Code's API-equivalent cost
-# (not a bill on a subscription, but a fair proxy for how much of the usage limit a run eats).
+# USD: Claude Code's API-equivalent cost (not a bill on a subscription, but a fair proxy for how
+# much of the usage limit a run eats).
 MAX_TOKENS_PER_RUN = int(os.environ.get("IDEA_LAB_MAX_TOKENS", 800_000))
 MAX_SEARCHES_PER_RUN = int(os.environ.get("IDEA_LAB_MAX_SEARCHES", 120))
 MAX_USD_PER_RUN = float(os.environ.get("IDEA_LAB_MAX_USD", 8.0))
@@ -80,7 +80,7 @@ PRICE_PER_MTOK = {
     "claude-sonnet-5-5": (2.00, 10.00),
     "claude-haiku-5-5": (0.10, 0.50),
 }
-PRICE_PER_SEARCH = 0.01  # web search, USD per search (API backend)
+PRICE_PER_SEARCH = 0.01  # web search, USD per search (API-equivalent, for estimates)
 # Rough token use per call, for estimates only.
 EST_TOKENS = {  # (input, output)
     "trends": (40_000, 4_000), "scout": (45_000, 6_000), "dedupe": (15_000, 1_500),

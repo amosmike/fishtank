@@ -108,41 +108,49 @@ def apply_all(store: Store, decisions_file: Path | None = None, inbox: Path | No
     inbox = Path(inbox or store.root / "inbox")
     applied_path = store.root / "decisions.applied.json"
     applied = _load_applied(applied_path)
+    n_applied = len(applied)
     log: list[str] = []
+    # A bad entry (unknown id, bad status, missing field) is logged and skipped, not fatal: one typo
+    # mustn't stop every run. A skipped yaml entry isn't marked applied, so once fixed it applies.
+    bad = (KeyError, ValueError)
 
-    if decisions_file.exists():
-        import yaml
-        doc = yaml.safe_load(decisions_file.read_text()) or {}
-        for e in doc.get("decisions") or []:
-            h = _hash(e)
-            if h in applied:
-                continue
-            log.append(decide(store, e["id"], e["status"], e.get("reasons"), e.get("text", ""), e.get("hosted_url", "")))
-            applied[h] = {"at": now_iso(), "entry": e}
-        for e in doc.get("new_ideas") or []:
-            h = _hash(e)
-            if h in applied:
-                continue
-            log.append(submit_idea(store, e["title"], e["pitch"], e.get("kind", "game"), e.get("notes", ""), e.get("id")))
-            applied[h] = {"at": now_iso(), "entry": e}
-        for e in doc.get("site_updates") or []:
-            h = _hash(e)
-            if h in applied:
-                continue
-            log.append(update_site(store, e["id"], e.get("patch") or {}, e.get("create", False)))
-            applied[h] = {"at": now_iso(), "entry": e}
+    def once(e: dict, apply) -> None:
+        h = _hash(e)
+        if h in applied:
+            return
+        try:
+            log.append(apply(e))
+        except bad as err:
+            log.append(f"skipped {e.get('id') or e.get('title') or e}: {err!r} (fix it in {decisions_file.name})")
+            return
+        applied[h] = {"at": now_iso(), "entry": e}
 
-    if inbox.exists():
-        done = inbox / "applied"
-        for f in sorted(inbox.glob("*.json")):
-            ops = json.loads(f.read_text()).get("ops") or []
-            for op in ops:
-                msg = apply_op(store, op)
-                if msg:
-                    log.append(msg)
-            done.mkdir(parents=True, exist_ok=True)
-            f.replace(done / f.name)
+    try:
+        if decisions_file.exists():
+            import yaml
+            doc = yaml.safe_load(decisions_file.read_text()) or {}
+            for e in doc.get("decisions") or []:
+                once(e, lambda e: decide(store, e["id"], e["status"], e.get("reasons"), e.get("text", ""),
+                                         e.get("hosted_url", "")))
+            for e in doc.get("new_ideas") or []:
+                once(e, lambda e: submit_idea(store, e["title"], e["pitch"], e.get("kind", "game"), e.get("notes", ""),
+                                              e.get("id")))
+            for e in doc.get("site_updates") or []:
+                once(e, lambda e: update_site(store, e["id"], e.get("patch") or {}, e.get("create", False)))
 
-    if log:
-        applied_path.write_text(json.dumps(applied, indent=1, ensure_ascii=False) + "\n")
+        if inbox.exists():
+            done = inbox / "applied"
+            for f in sorted(inbox.glob("*.json")):
+                for op in json.loads(f.read_text()).get("ops") or []:
+                    try:
+                        msg = apply_op(store, op)
+                    except bad as err:
+                        msg = f"{op.get('path')}: skipped ({err!r})"
+                    if msg:
+                        log.append(msg)
+                done.mkdir(parents=True, exist_ok=True)
+                f.replace(done / f.name)
+    finally:  # keep what was applied even if something above fails
+        if len(applied) != n_applied:
+            applied_path.write_text(json.dumps(applied, indent=1, ensure_ascii=False) + "\n")
     return log
