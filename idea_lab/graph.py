@@ -34,7 +34,11 @@ Engines:
 """
 from __future__ import annotations
 
+import json
 import operator
+import os
+import time
+from pathlib import Path
 from typing import Annotated, TypedDict
 
 from . import config, llm
@@ -81,6 +85,43 @@ def _check_dag() -> None:
 _check_dag()
 
 
+def step_file(run_id: str) -> Path:
+    """Step mode: the dashboard lists released nodes here ({"released": [...]})."""
+    return config.STATE / "step" / f"{run_id}.json"
+
+
+def release(run_id: str, names: list[str]) -> None:
+    p = step_file(run_id)
+    p.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        done = json.loads(p.read_text()).get("released", [])
+    except (FileNotFoundError, json.JSONDecodeError):
+        done = []
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps({"released": sorted(set(done) | set(names))}))
+    tmp.replace(p)
+
+
+def _wait_for_release(ctx: Ctx, name: str) -> None:
+    """In step mode (IDEA_LAB_STEP=1) a node marks itself "waiting" and blocks until released.
+    Nodes waiting at the same time are parallel branches; the dashboard releases them together."""
+    if not os.environ.get("IDEA_LAB_STEP"):
+        return
+    ctx.node_status(name, "waiting")
+    p = step_file(ctx.run_id)
+    try:
+        while True:
+            try:
+                if name in json.loads(p.read_text()).get("released", []):
+                    return
+            except (FileNotFoundError, json.JSONDecodeError):
+                pass
+            time.sleep(0.2)
+    except BaseException:  # Stop / Ctrl-C while waiting
+        ctx.node_status(name, "stopped")
+        raise
+
+
 def _node(name: str):
     step, _ = DAG[name]
     fn = STEPS[step]
@@ -89,6 +130,7 @@ def _node(name: str):
         if step not in (state.get("plan") or ORDER):
             ctx.node_status(name, "off")
             return {"done": [name]}
+        _wait_for_release(ctx, name)
         token = llm.NODE.set(name)
         calls_before, errors_before = ctx.budget.calls(name), ctx.errors.get(name, 0)
         ctx.patch_run({"phase": name})

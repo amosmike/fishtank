@@ -217,6 +217,9 @@ python -m idea_lab serve --open        # http://127.0.0.1:8765
 
 A local dashboard to watch a run happen:
 
+- **Step by step:** the run pauses before each step and explains what it's about to do, then what it
+  did. Press **Next step** to go on; steps that run in parallel are released together. Or choose
+  **Continuous** to watch it run straight through, with the same explanations as each step starts.
 - **Pipeline:** six phases (prepare, find new ideas, critique & revise, check, rank, wrap up). Each shows
   whether it's waiting, running, done or had nothing to do, with a dot per step. Phases that run in
   parallel light up together.

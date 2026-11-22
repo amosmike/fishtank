@@ -81,7 +81,7 @@ class Ctx:
             if status in ("done", "idle") and n.get("status") == "skipped":
                 return
             n["status"] = status
-            n["started_at" if status == "running" else "ended_at"] = now_iso()
+            n[{"running": "started_at", "waiting": "waiting_at"}.get(status, "ended_at")] = now_iso()
             self.store.put("runs", self.run_id, r)
 
 

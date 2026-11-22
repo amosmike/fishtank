@@ -28,7 +28,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import config, decisions
-from .graph import DAG, LAYOUT
+from .graph import DAG, LAYOUT, release
 from .rules import is_protected, top_n
 from .steps import memory
 from .store import Store, parse_ts
@@ -59,6 +59,7 @@ class Runner:
     def __init__(self):
         self.proc: subprocess.Popen | None = None
         self.ds = ""
+        self.mode = ""
         self.cmd: list[str] = []
         self.log_path = config.STATE / "serve-run.log"
         self.lock = threading.Lock()
@@ -66,13 +67,13 @@ class Runner:
     def running(self) -> bool:
         return self.proc is not None and self.proc.poll() is None
 
-    def start(self, ds: str, args: list[str], env: dict) -> None:
+    def start(self, ds: str, args: list[str], env: dict, mode: str = "continuous") -> None:
         with self.lock:
             if self.running():
                 raise RuntimeError("A run is already in progress.")
             config.STATE.mkdir(parents=True, exist_ok=True)
             self.cmd = [sys.executable, "-m", "idea_lab", "run", *args]
-            self.ds = ds
+            self.ds, self.mode = ds, mode
             log = self.log_path.open("w")
             self.proc = subprocess.Popen(self.cmd, cwd=config.ROOT, env={**os.environ, **env, "PYTHONUNBUFFERED": "1"},
                                          stdout=log, stderr=subprocess.STDOUT)
@@ -86,7 +87,7 @@ class Runner:
         tail = ""
         if self.log_path.exists():
             tail = "\n".join(self.log_path.read_text(errors="replace").splitlines()[-25:])
-        return {"running": self.running(), "dataset": self.ds, "cmd": " ".join(self.cmd[2:]),
+        return {"running": self.running(), "dataset": self.ds, "mode": self.mode, "cmd": " ".join(self.cmd[2:]),
                 "exit_code": None if self.proc is None or self.running() else self.proc.returncode, "tail": tail}
 
 
@@ -107,10 +108,12 @@ def plan_args(ds: str, plan: str, store: Store) -> list[str]:
     return args
 
 
-def env_for(ds: str, speed: float | None = None) -> dict:
+def env_for(ds: str, mode: str = "continuous") -> dict:
     env = {"IDEA_LAB_DATA": str(data_dir(ds))}
     if ds == "demo":
-        env["IDEA_LAB_DEMO_DELAY"] = str(speed if speed is not None else 1.0)
+        env["IDEA_LAB_DEMO_DELAY"] = "0.8"  # long enough to see each step working
+    if mode == "step":
+        env["IDEA_LAB_STEP"] = "1"
     return env
 
 
@@ -209,9 +212,20 @@ class Handler(BaseHTTPRequestHandler):
                 root = data_dir(ds)
                 if root is None:
                     return self._json({"error": "No real data folder (clone the data repo into data/)."}, 400)
+                mode = "step" if body.get("mode") == "step" else "continuous"
                 args = plan_args(ds, body.get("plan", "full"), Store(root))
-                RUNNER.start(ds, args, env_for(ds, body.get("speed")))
+                RUNNER.start(ds, args, env_for(ds, mode), mode)
                 return self._json({"ok": True, "cmd": " ".join(args)})
+            if path == "/api/next":
+                root = data_dir(ds)
+                runs = Store(root).runs() if root else []
+                if not runs or not RUNNER.running():
+                    return self._json({"error": "No run in progress."}, 409)
+                run = runs[-1]
+                waiting = [n for n, v in (run.get("nodes") or {}).items() if v.get("status") == "waiting"]
+                if waiting:
+                    release(run["_id"], waiting)
+                return self._json({"ok": True, "released": waiting})
             if path == "/api/dryrun":
                 root = data_dir(ds)
                 if root is None:

@@ -51,7 +51,8 @@
   .phases { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; }
   @media (max-width: 1000px) { .phases { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
   @media (max-width: 560px) { .phases { grid-template-columns: minmax(0, 1fr); } }
-  .phase { position: relative; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--sunk); }
+  .phase { position: relative; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--sunk);
+           min-height: 156px; }
   .phase:not(:last-child)::after { content: "→"; position: absolute; right: -12px; top: 50%; transform: translateY(-50%);
                                    color: var(--muted); font-size: 12px; }
   @media (max-width: 1000px) { .phase::after { display: none; } }
@@ -62,6 +63,8 @@
   .phase .steps { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 6px; font-size: 12px; color: var(--muted); }
   .phase .mx { font: 11px var(--mono); color: var(--muted); margin-top: 4px; min-height: 14px; }
   .phase.running { border-color: var(--run); background: var(--run-soft); }
+  .phase.waiting { border-color: var(--accent); border-style: dashed; }
+  .phase.waiting .state { color: var(--accent); }
   .phase.running .state { color: var(--run); }
   .phase.done .state { color: var(--go); }
   .phase.skipped .state { color: var(--hold); }
@@ -69,12 +72,24 @@
   .phase.off, .phase.idle { opacity: .55; }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--line); margin-right: 4px; vertical-align: 0; }
   .dot.running { background: var(--run); animation: pulse 1s infinite; }
+  .dot.waiting { background: transparent; box-shadow: inset 0 0 0 2px var(--accent); }
   .dot.done { background: var(--go); }
   .dot.skipped { background: var(--hold); }
   .dot.error, .dot.stopped { background: var(--stop); }
   .dot.idle { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
   .dot.off { opacity: .35; }
   @keyframes pulse { 50% { opacity: .25; transform: scale(1.5); } }
+  #hint { min-height: 1.5em; margin: 10px 0 0; }
+  .guide { height: 184px; overflow: auto; margin-top: 14px; border: 1px solid var(--line); border-radius: 10px;
+           padding: 12px 14px; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 4px 18px; align-items: start; }
+  .guide .k { font: 600 11px var(--body); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .guide h4 { margin: 2px 0 6px; font-size: 15px; }
+  .guide p { margin: 0 0 6px; font-size: 13px; }
+  .guide p b { font-weight: 650; }
+  .guide .md { font: 11.5px var(--mono); color: var(--muted); }
+  .guide .then { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 6px; font-size: 12.5px; color: var(--muted); }
+  .guide .then b { color: var(--ink); }
+  .guide button.primary { font-size: 15px; padding: 9px 18px; white-space: nowrap; }
   .meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 14px; }
   .meter .lbl { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
   .meter .bar { height: 6px; border-radius: 6px; background: var(--sunk); overflow: hidden; margin-top: 4px; }
@@ -148,12 +163,13 @@
     <button type="button" data-ds="real" aria-pressed="false">Real data</button>
   </div>
   <select id="plan" aria-label="Run plan">
-    <option value="full">Full discovery run</option>
+    <option value="full">Discovery run</option>
     <option value="maintenance">Maintenance run</option>
-    <option value="judge">Judge + fact-check only</option>
+    <option value="judge">Judge + fact-check</option>
   </select>
-  <select id="speed" aria-label="Demo speed">
-    <option value="1.5">Slow</option><option value="0.8" selected>Normal</option><option value="0.2">Fast</option>
+  <select id="mode" aria-label="How to run">
+    <option value="step" selected>Step by step</option>
+    <option value="continuous">Continuous</option>
   </select>
   <button type="button" id="dry">Dry run</button>
   <button type="button" id="start" class="primary">Start run</button>
@@ -167,6 +183,7 @@
   <section class="panel" aria-labelledby="pipe-h">
     <h2 id="pipe-h">Pipeline <span id="runid" class="note"></span></h2>
     <div class="phases" id="pipe"></div>
+    <div class="guide" id="guide" aria-live="polite"></div>
     <div class="meters" id="meters"></div>
     <p class="note" id="hint"></p>
   </section>
@@ -238,7 +255,71 @@
     ["Wrap up", "Counts, lessons and the digest", ["close"]],
   ];
   const STATE = {running: "Running", done: "Done", idle: "Nothing to do", skipped: "Skipped (budget)", error: "Error",
-                 stopped: "Stopped", off: "Not in this run", pending: "Waiting"};
+                 stopped: "Stopped", off: "Not in this run", pending: "Waiting", waiting: "Ready: press Next step"};
+
+  // What each step does, shown in the guide before it runs.
+  const INFO = {
+    memory: ["Prepare", "Applies your latest decisions, works out what every step has to do (the work queues), and builds the brief each agent gets: your taste in your own words, the map of existing ideas, live-site results.", "code (a cheap model labels any idea without a category)"],
+    trends: ["Trends", "Looks for what is gaining traction right now: UK news, rising Reddit posts, new portal games. Cached for a week, so most runs reuse it and make no call.", "mid model + web search, at most 15 searches"],
+    scouts: ["Scouts", "Three scouts research at the same time, each with its own brief: a dice roll (who it's for × format × what powers it, rolled in code with no repeats from the last 7 runs) or a proven angle. Each returns 4–5 ideas with sources and the nearest idea already in the lab.", "mid model + web search, at most 12 searches each"],
+    dedupe: ["Dedupe", "Code drops exact and near-identical titles, then one cheap call flags ideas that only re-theme an existing one. At most 12 new ideas a run, 5 of them bigger builds.", "code + small model"],
+    critic1_queued: ["Critic 1, on ideas already waiting", "Critiques ideas that were waiting when the run started (your own submissions first). It doesn't need the scouts, so it runs alongside them. Your ideas are never killed on this first pass.", "mid model + web search"],
+    reviser_queued: ["Reviser, on ideas already waiting", "Rewrites each idea a critic sent back, fixing the named problem while keeping its core job. Ideas get at most two revisions.", "small model, no web"],
+    critic2_queued: ["Critic 2, on ideas already waiting", "A fresh critic checks whether each revision actually fixed the problem. A third \"revise\" counts as a kill.", "mid model + web search"],
+    critic1: ["Critic 1", "Tries to kill each new idea and only passes it with evidence: real competitors and their weaknesses, who ranks for the search, and one concrete way to win. Verdict: live, revise (with fixes) or kill.", "mid model + web search, batches of 4"],
+    reviser: ["Reviser", "Rewrites the ideas critic 1 sent back: more specific, never blander. A pivot to a different user or problem becomes a new idea.", "small model, no web"],
+    critic2: ["Critic 2", "A fresh critic checks each revision with new searches. A third \"revise\" counts as a kill.", "mid model + web search"],
+    logistics: ["Logistics", "Code runs first: domain lookups, a check that every cited link resolves, and the licence pages fetched as text. Then the model judges data licences, hosting limits, running costs and effort. Runs at the same time as demand.", "code checks + mid model"],
+    demand: ["Demand", "Hunts for direct evidence that people want exactly this (requests, community sizes), and for evidence against. It suggests a change to the demand score; the judge decides.", "mid model + web search"],
+    judge: ["Judge", "Scores each idea 0–5 on seven criteria, blind: it never sees who proposed it or how often it was revised. Code computes the total, applies the caps, limits drift without new evidence, and ranks the top 6.", "strongest model, no web"],
+    factcheck: ["Fact-check", "Re-checks the top 3's load-bearing claims with fresh searches. It can only lower a score, by at most 2, so a confident hallucination can't push an idea up.", "mid model + web search"],
+    close: ["Wrap up", "Counts, per-angle yield, lessons and the digest. Saves the run.", "code"],
+  };
+  const AGENT = {memory: ["memory", "decisions"], trends: ["trends"], scouts: ["scouts"], dedupe: ["dedupe"], critic1: ["critic1"],
+                 reviser: ["reviser"], critic2: ["critic2"], logistics: ["logistics"], demand: ["demand"], judge: ["judge"],
+                 factcheck: ["factcheck"], close: ["close"]};
+
+  function renderGuide(st) {
+    const run = st.run || {}, nodes = run.nodes || {}, active = st.runner.running && st.runner.dataset === ds;
+    const stepping = active && st.runner.mode === "step";
+    const at = (n, k) => (nodes[n] || {})[k] || "";
+    const waiting = Object.keys(nodes).filter(n => nodes[n].status === "waiting");
+    const running = Object.keys(nodes).filter(n => nodes[n].status === "running");
+    const ended = Object.keys(nodes).filter(n => ["done", "idle", "skipped", "error"].includes(nodes[n].status) && at(n, "ended_at"))
+                        .sort((a, b) => at(b, "ended_at").localeCompare(at(a, "ended_at")));
+    const explain = ns => ns.map(n => `<p><b>${esc(INFO[n][0])}.</b> ${esc(INFO[n][1])} <span class="md">· ${esc(INFO[n][2])}</span></p>`).join("");
+    let last = "";
+    if (ended.length && (active || run.status === "done")) {
+      const n = ended[0], step = (st.steps || {})[n] || n, status = nodes[n].status;
+      const from = at(n, "started_at"), to = at(n, "ended_at");
+      const msgs = ((run.log) || []).filter(e => (AGENT[step] || [step]).includes(e.agent) && e.t >= from && e.t <= to + "~")
+                                    .map(e => e.msg).slice(-3);
+      const what = status === "idle" ? "nothing to do this time" : status === "skipped" ? "skipped: the budget was hit"
+                 : msgs.length ? msgs.map(esc).join(" · ") : STATE[status].toLowerCase();
+      last = `<div class="then"><b>Just happened, ${esc(INFO[n][0])}:</b> ${what}</div>`;
+    }
+    let left, btn = "";
+    if (stepping && waiting.length) {
+      const both = waiting.length > 1 ? ` <span class="md">· these run at the same time</span>` : "";
+      left = `<div class="k">Next</div><h4>${waiting.map(n => esc(INFO[n][0])).join(" + ")}${both}</h4>${explain(waiting)}${last}`;
+      btn = `<button type="button" class="primary" id="next">Next step ▶</button>`;
+    } else if (active && running.length) {
+      left = `<div class="k">Running now</div><h4>${running.map(n => esc(INFO[n][0])).join(" + ")}</h4>${explain(running)}${last}`;
+      btn = stepping ? `<button type="button" class="primary" disabled>Working…</button>` : "";
+    } else if (active) {
+      left = `<div class="k">Running</div><h4>Starting…</h4>${last}`;
+    } else if (run.status === "done" && ended.length) {
+      left = `<div class="k">Run complete</div><h4>${esc(run._id || "")}</h4><p>${esc(run.summary || "")}</p>${last}`;
+    } else {
+      const mode = $("mode").value;
+      left = `<div class="k">How it works</div><h4>${mode === "step" ? "Step through a run" : "Watch a run"}</h4>
+        <p>${mode === "step" ? "Press <b>Start</b>. The pipeline pauses before each step and explains what it is about to do; press <b>Next step</b> to run it and see what happened. Steps that run in parallel are released together."
+                             : "Press <b>Start</b> and watch the phases light up. This box explains whatever is running."}</p>
+        ${ds === "demo" ? `<p class="md">Demo: the agents are simulated (no network, no tokens). The queues, rules, scoring, caps and budgets are the real pipeline.</p>` : ""}`;
+    }
+    const html = `<div>${left}</div><div>${btn}</div>`;
+    if (html !== renderGuide.html) { $("guide").innerHTML = html; renderGuide.html = html; }  // keep scroll position
+  }
 
   function nodeStatus(st, n) {
     const run = st.run || {}, step = (st.steps || {})[n] || n, plan = run.plan || Object.values(st.steps || {});
@@ -246,9 +327,11 @@
   }
   function merge(ss, active) {
     if (ss.includes("running")) return "running";
+    if (ss.includes("waiting")) return "waiting";
     if (ss.includes("stopped")) return "stopped";
     if (ss.includes("error")) return "error";
     if (ss.includes("pending")) return active && ss.some(s => ["done", "idle", "skipped"].includes(s)) ? "running" : "pending";
+    if (ss.includes("waiting")) return "waiting";
     for (const s of ["done", "skipped", "idle"]) if (ss.includes(s)) return s;
     return "off";
   }
@@ -337,7 +420,7 @@
     $("status").textContent = s; $("status").className = "pill " + (running ? "running" : runStatus || "");
     $("start").disabled = r.running || !st.available; $("stop").disabled = !r.running;
     $("dry").disabled = !st.available || r.running;
-    $("reset").hidden = ds !== "demo"; $("speed").hidden = ds !== "demo";
+    $("reset").hidden = ds !== "demo"; $("mode").disabled = r.running;
     $("reset").disabled = r.running;
     $("start").textContent = ds === "demo" ? "Start demo run" : "Start real run…";
   }
@@ -351,7 +434,7 @@
       if (!st.available) {
         $("pipe").innerHTML = `<p class="note">No real data found. Clone the private data repo into <code>data/</code>, or use the demo.</p>`;
         $("board").innerHTML = ""; $("log").innerHTML = ""; $("meters").innerHTML = "";
-      } else { renderPipe(st); renderBoard(st); renderLog(st); }
+      } else { renderPipe(st); renderGuide(st); renderBoard(st); renderLog(st); }
       renderControls(st);
     } catch (e) { $("status").textContent = "server unreachable"; $("status").className = "pill error"; }
     busy = false;
@@ -409,6 +492,7 @@
   // ---- controls ----
   document.querySelectorAll("[data-ds]").forEach(b => b.addEventListener("click", () => {
     ds = b.dataset.ds; prevStage = {}; moved = {};
+    $("mode").value = ds === "demo" ? "step" : "continuous";
     document.querySelectorAll("[data-ds]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
     poll();
   }));
@@ -424,11 +508,18 @@
       const r = await post("/api/dryrun", {ds, plan: $("plan").value});
       if (!confirm("This runs real agents on your data and uses your Claude subscription.\n\n" + (r.output || "") + "\n\nStart the run?")) return;
     }
-    const r = await post("/api/run", {ds, plan: $("plan").value, speed: Number($("speed").value)});
+    const r = await post("/api/run", {ds, plan: $("plan").value, mode: $("mode").value});
     if (r.error) alert(r.error);
     poll();
   });
   $("stop").addEventListener("click", () => post("/api/stop", {}).then(poll));
+  $("guide").addEventListener("click", async e => {
+    if (e.target.id !== "next") return;
+    e.target.disabled = true; e.target.textContent = "Working…";
+    const r = await post("/api/next", {ds}); if (r.error) alert(r.error);
+    poll();
+  });
+  $("mode").addEventListener("change", () => last && renderGuide(last));
   $("reset").addEventListener("click", async () => {
     if (!confirm("Reset the demo data to the original sample?")) return;
     const r = await post("/api/reset-demo", {}); if (r.error) alert(r.error);

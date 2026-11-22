@@ -474,6 +474,42 @@ class IdleSteps(unittest.TestCase):
             shutil.rmtree(tmp)
 
 
+class StepMode(unittest.TestCase):
+    def test_each_step_waits_until_released(self):
+        import threading
+        import time as _t
+        from idea_lab import demo
+        tmp, store = temp_store()
+        try:
+            with mock.patch.object(config, "BACKEND", "demo"), mock.patch.object(demo, "DELAY", 0), \
+                    mock.patch.object(config, "OUT", tmp / "out"), mock.patch.object(config, "STATE", tmp / ".state"), \
+                    mock.patch.dict("os.environ", {"IDEA_LAB_STEP": "1"}):
+                ctx = nodes.Ctx(store, llm.Budget(), "step")
+                store.put("runs", "step", {"started_at": "2026-11-16T09:00:00Z", "status": "running", "log": []})
+                state = {"run_id": "step", "run_type": "discovery", "done": [], "judge_scope": "validated",
+                         "plan": graph.make_plan("discovery", ["judge"])}
+                th = threading.Thread(target=graph.run, args=(ctx, state), kwargs={"engine": "plain"}, daemon=True)
+                th.start()
+                order = []
+                for _ in range(200):
+                    _t.sleep(0.05)
+                    nodes_ = store.run("step").get("nodes") or {}
+                    waiting = [n for n, v in nodes_.items() if v.get("status") == "waiting" and n not in order]
+                    if waiting:
+                        self.assertEqual(len(waiting), 1)                       # plain engine: one at a time
+                        _t.sleep(0.3)
+                        self.assertEqual(store.run("step")["nodes"][waiting[0]]["status"], "waiting")  # really blocked
+                        order.append(waiting[0])
+                        graph.release("step", waiting)
+                    if not th.is_alive():
+                        break
+                th.join(5)
+            self.assertEqual(order, ["memory", "judge", "close"])  # steps not in the plan don't wait
+            self.assertEqual(store.run("step")["status"], "done")
+        finally:
+            shutil.rmtree(tmp)
+
+
 class BudgetAndConcurrency(unittest.TestCase):
     def test_budget_hit_skips_every_model_step_before_the_judge(self):
         from idea_lab import demo
