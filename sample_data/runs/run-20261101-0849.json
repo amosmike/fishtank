@@ -1,0 +1,43 @@
+{
+  "started_at": "2026-11-01T08:55:00Z",
+  "ended_at": "2026-11-01T09:30:00Z",
+  "status": "done",
+  "run_type": "discovery",
+  "angles": [
+    "c: free open datasets/APIs that could power a one-page tool",
+    "dice: commuters / daily puzzle / free open dataset or API"
+  ],
+  "agent_stats": {
+    "dice": [
+      {
+        "scout": "dice1",
+        "audience": "commuters",
+        "format": "daily puzzle",
+        "engine": "free open dataset or API",
+        "rerolls": 0
+      }
+    ],
+    "angle_yield": {
+      "c: free open datasets/APIs": {
+        "ideas": 3,
+        "survived_critics": 2,
+        "shortlisted": 1
+      }
+    }
+  },
+  "counts": {
+    "generated": 6,
+    "killed": 1,
+    "judged": 5
+  },
+  "lessons": [
+    "Sample lesson: dataset angles yield."
+  ],
+  "summary": "Sample run.",
+  "top": [
+    "tide-ready",
+    "sow-what",
+    "round-builder"
+  ],
+  "log": []
+}

@@ -1,0 +1,43 @@
+{
+  "started_at": "2026-11-08T08:55:00Z",
+  "ended_at": "2026-11-08T09:30:00Z",
+  "status": "done",
+  "run_type": "discovery",
+  "angles": [
+    "d: browser and daily-puzzle games",
+    "dice: pet owners / quiz or personality test / hand-curated set"
+  ],
+  "agent_stats": {
+    "dice": [
+      {
+        "scout": "dice1",
+        "audience": "pet owners",
+        "format": "quiz or personality test",
+        "engine": "hand-curated set",
+        "rerolls": 1
+      }
+    ],
+    "angle_yield": {
+      "d: browser and daily-puzzle games": {
+        "ideas": 4,
+        "survived_critics": 2,
+        "shortlisted": 0
+      }
+    }
+  },
+  "counts": {
+    "generated": 7,
+    "killed": 1,
+    "judged": 4
+  },
+  "lessons": [
+    "Sample lesson: famous-original reskins get killed."
+  ],
+  "summary": "Sample run.",
+  "top": [
+    "tide-ready",
+    "sow-what",
+    "round-builder"
+  ],
+  "log": []
+}

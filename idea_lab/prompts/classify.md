@@ -1,0 +1,3 @@
+# Idea-map classifier
+
+For each idea (id, title, pitch, kind), give a short `category` (e.g. "daily geography game", "daily word/logic puzzle", "arcade/portal game", "idle/incremental game", "money calculator", "data lookup", "content/reference", "repeat-use tracker", "community/social", "sport game", "music/audio game", "kids/family") and a short core `mechanic` (e.g. "outline guess", "higher/lower", "grid", "price guess", "runner", "wave defence", "timeline sort", "map pin", "calculator", "checklist"). Reuse the labels in `known_labels` where they fit, so counts group together. Lowercase, 2–5 words each.

@@ -1,0 +1,64 @@
+{
+  "title": "Bin Day",
+  "pitch": "Which bin goes out this week, for your street.",
+  "kind": "tool",
+  "lane": "week",
+  "stage": "judged",
+  "source": "scout",
+  "run_id": "run-20261108-0849",
+  "created_at": "2026-11-08T08:55:00Z",
+  "updated_at": "2026-11-08T08:55:00Z",
+  "search_phrase": "bin day",
+  "signals": [
+    {
+      "text": "Forum post asking for a tool like this (fictional sample)",
+      "url": "https://example.com/forum/bin-day"
+    }
+  ],
+  "competitors": [
+    {
+      "name": "Rival tool",
+      "url": "https://example.com/rival-bin-day",
+      "note": "Fictional competitor",
+      "weakness": "Slow, ad-heavy on mobile, needs sign-up"
+    }
+  ],
+  "serp_note": "Small sites rank for the long tail (sample).",
+  "wedge": "Answer in one tap with no sign-up (sample).",
+  "gap_note": "Incumbents are weak on mobile (sample).",
+  "demand_evidence": "One direct request, two indirect signals (sample).",
+  "data_sources": "Open dataset at https://example.com/data/bin-day (sample licence: OGL-style)",
+  "build_plan": "Static page plus a JSON file built by a script (sample).",
+  "traffic_plan": "Share loop plus two community posts (sample).",
+  "monetisation": "Display ads after traction.",
+  "risks": "Data freshness (sample).",
+  "famous_original": "none",
+  "angle": "c: free open datasets/APIs that could power a one-page tool",
+  "history": [
+    {
+      "at": "2026-11-08T08:55:00Z",
+      "by": "scout c",
+      "stage": "generated",
+      "note": ""
+    }
+  ],
+  "sample": true,
+  "scores": {
+    "demand": 2,
+    "audience": 3,
+    "gap": 2,
+    "build": 3,
+    "share": 3,
+    "ads": 3,
+    "fun": 2
+  },
+  "total": 51,
+  "judge_notes": "Lane week. Sample judge notes.",
+  "critique": {
+    "at": "2026-11-08T08:55:00Z",
+    "verdict": "live",
+    "kill_reason": "",
+    "fixes": [],
+    "wedge": "One tap (sample)"
+  }
+}

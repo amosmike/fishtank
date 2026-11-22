@@ -1,0 +1,22 @@
+[project]
+name = "fishtank"
+version = "0.1.0"
+description = "Idea Lab pipeline: agents that find, critique, check and rank website ideas"
+requires-python = ">=3.11"
+dependencies = [
+  "pyyaml>=6",
+]
+
+[project.optional-dependencies]
+# The LangGraph engine (checkpointed, resumable). Without it, `--engine plain` runs the same nodes
+# in order and resumes from the run file.
+graph = ["langgraph>=0.4", "langgraph-checkpoint-sqlite>=2"]
+# The Anthropic API backend (needed for GitHub Actions). The default backend is `claude -p`.
+api = ["anthropic>=1.0"]
+all = ["fishtank[graph,api]"]
+
+[tool.setuptools]
+packages = ["idea_lab", "idea_lab.steps", "idea_lab.checks"]
+
+[tool.setuptools.package-data]
+idea_lab = ["prompts/*.md"]

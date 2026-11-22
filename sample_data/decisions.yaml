@@ -1,0 +1,31 @@
+# Michael's decisions. Applied at the start of every run (or now: `python -m idea_lab apply`).
+# Each entry is applied ONCE (remembered by content in decisions.applied.json), so you can leave old
+# entries here as a log, and editing an entry makes it a new decision.
+#
+# The viewer (out/index.html) can do all of this with its buttons and give you a change file for
+# data/inbox/ instead; use whichever is easier.
+#
+# decisions:          status: selected | parked | rejected | building | hosted | undo
+#   - id: tide-ready
+#     status: selected
+#     reasons: [Strong demand, Easy win]   # optional; the page's reason chips
+#     text: "Your own words: they go into every agent's brief verbatim"
+#   - id: some-idea
+#     status: hosted
+#     hosted_url: https://example.uk/
+#
+# new_ideas:          your own ideas; they skip the scouts and go to critic round 1 next run
+#   - title: Spreadsheet Golf
+#     pitch: One line
+#     kind: game        # game | tool | reference | calculator
+#     notes: Anything else, in your words
+#
+# site_updates:       weekly numbers for live sites (the pipeline never writes these)
+#   - id: dawn-chorus
+#     patch:
+#       weeks:            # the whole list: it replaces the old one
+#         - {week_start: "2026-11-16", visits: 120, quiet_avg: 9, referrer: reddit.com, earnings: 0, note: ""}
+
+decisions: []
+new_ideas: []
+site_updates: []

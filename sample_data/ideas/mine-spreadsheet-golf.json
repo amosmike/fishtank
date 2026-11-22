@@ -1,0 +1,19 @@
+{
+  "title": "Spreadsheet Golf",
+  "pitch": "Hit the target number in as few formula cells as possible.",
+  "kind": "game",
+  "notes": "My idea (sample): a daily par for office nerds.",
+  "source": "michael",
+  "stage": "submitted",
+  "created_at": "2026-11-12T19:00:00Z",
+  "updated_at": "2026-11-12T19:00:00Z",
+  "history": [
+    {
+      "at": "2026-11-12T19:00:00Z",
+      "by": "Michael",
+      "stage": "submitted",
+      "note": "Added from the page"
+    }
+  ],
+  "sample": true
+}

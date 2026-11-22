@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Idea Lab</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* Layout: a ranked list is the page. Summary strip on top, one card per idea, evidence folded inside. */
+  :root{
+    --bg:#F3F4F6; --surface:#FFFFFF; --ink:#14171C; --muted:#5A6270; --line:#DDE1E7;
+    --accent:#1F4FD8; --accent-soft:#E6ECFC;
+    --go:#16794A; --go-soft:#DDF3E7; --hold:#9A6200; --hold-soft:#FBEFD6; --stop:#B3261E; --stop-soft:#FBE3E1;
+    --display:"IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+    --body:"IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    --mono:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --bg:#0F1216; --surface:#171B21; --ink:#E7EAEE; --muted:#9AA3AF; --line:#2A3039;
+      --accent:#7C9DFF; --accent-soft:#1D2742;
+      --go:#4CC38A; --go-soft:#14301F; --hold:#E3B34C; --hold-soft:#33280F; --stop:#F08A80; --stop-soft:#3A1A18;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"]{
+    --bg:#0F1216; --surface:#171B21; --ink:#E7EAEE; --muted:#9AA3AF; --line:#2A3039;
+    --accent:#7C9DFF; --accent-soft:#1D2742;
+    --go:#4CC38A; --go-soft:#14301F; --hold:#E3B34C; --hold-soft:#33280F; --stop:#F08A80; --stop-soft:#3A1A18;
+    color-scheme: dark;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--bg);color:var(--ink);font:15px/1.5 var(--body)}
+  a{color:var(--accent)}
+  button,input,textarea,select{font:inherit;color:inherit}
+  :focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .wrap{max-width:980px;margin:0 auto;padding:0 18px 60px}
+
+  header{padding:22px 0 14px;display:flex;flex-wrap:wrap;gap:12px 24px;align-items:end;justify-content:space-between}
+  h1{font-family:var(--display);font-size:26px;font-weight:700;margin:0;letter-spacing:-.01em}
+  .sub{color:var(--muted);margin:2px 0 0;font-size:14px}
+  nav{display:flex;gap:4px;flex-wrap:wrap}
+  nav a{padding:7px 12px;border-radius:8px;text-decoration:none;color:var(--muted);font-weight:600;font-size:14px}
+  nav a[aria-current="page"]{background:var(--surface);color:var(--ink);box-shadow:0 0 0 1px var(--line)}
+
+  .strip{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:1px;background:var(--line);
+         border:1px solid var(--line);border-radius:12px;overflow:hidden;margin-bottom:20px}
+  .strip div{background:var(--surface);padding:12px 14px}
+  .strip b{display:block;font-family:var(--mono);font-size:20px;font-variant-numeric:tabular-nums}
+  .strip span{font-size:12.5px;color:var(--muted)}
+  .note{font-size:13.5px;color:var(--muted);margin:-8px 0 18px}
+  .runnow{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin:-6px 0 18px}
+  .runnow .msg{font-size:13.5px;color:var(--muted)}
+  .runnow .msg.bad{color:var(--stop);font-weight:600}
+
+  .view{display:none}.view.on{display:block}
+  .empty{background:var(--surface);border:1px dashed var(--line);border-radius:12px;padding:26px;text-align:center;color:var(--muted)}
+
+  .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;display:grid;
+        grid-template-columns:56px minmax(0,1fr);gap:4px 16px;margin-bottom:12px}
+  .card.top{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+  .rank{grid-row:span 3;text-align:center}
+  .rank .n{font-family:var(--mono);font-size:13px;color:var(--muted)}
+  .rank .score{font-family:var(--mono);font-weight:600;font-size:26px;line-height:1.1;font-variant-numeric:tabular-nums}
+  .rank .of{font-size:11px;color:var(--muted)}
+  .card h2{font-size:18px;margin:0;font-weight:700;text-wrap:balance}
+  .pitch{margin:2px 0 6px;color:var(--ink)}
+  .chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
+  .chip{font-size:12px;font-weight:600;padding:2px 8px;border-radius:999px;background:var(--bg);color:var(--muted);border:1px solid var(--line)}
+  .chip.stage{background:var(--accent-soft);color:var(--accent);border-color:transparent}
+  .chip.go{background:var(--go-soft);color:var(--go);border-color:transparent}
+  .chip.hold{background:var(--hold-soft);color:var(--hold);border-color:transparent}
+  .chip.stop{background:var(--stop-soft);color:var(--stop);border-color:transparent}
+
+  .bars{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px 18px;margin:4px 0 10px}
+  @media (max-width:560px){.bars{grid-template-columns:repeat(2,minmax(0,1fr))}.card{grid-template-columns:44px minmax(0,1fr)}}
+  .bar{font-size:12.5px;color:var(--muted)}
+  .bar .row{display:flex;justify-content:space-between}
+  .bar .row b{font-family:var(--mono);color:var(--ink);font-weight:600}
+  .bar .track{height:5px;border-radius:3px;background:var(--bg);margin-top:3px;overflow:hidden}
+  .bar .fill{height:100%;background:var(--accent);border-radius:3px}
+
+  details.ev{border-top:1px solid var(--line);padding-top:8px;margin-top:2px}
+  details.ev summary{cursor:pointer;font-weight:600;font-size:14px;color:var(--muted)}
+  .evgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:14px 22px;margin-top:10px}
+  .evgrid h3{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 4px}
+  .evgrid p,.evgrid ul{margin:0;font-size:14px}
+  .evgrid ul{padding-left:18px}
+  .hist{font-family:var(--mono);font-size:12px;color:var(--muted);margin-top:12px;max-height:160px;overflow:auto}
+
+  .actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}
+  .btn{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:7px 14px;font-weight:600;cursor:pointer}
+  .btn:hover{border-color:var(--ink)}
+  .btn.go{background:var(--go);border-color:var(--go);color:#fff}
+  .btn.hold{color:var(--hold)} .btn.stop{color:var(--stop)}
+  .btn:disabled{opacity:.5;cursor:not-allowed}
+  .decide{margin-top:10px;padding:12px;border-radius:10px;background:var(--bg);display:grid;gap:8px}
+  .decide .reasons{display:flex;flex-wrap:wrap;gap:6px}
+  .decide .reasons button{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:3px 10px;font-size:13px;cursor:pointer}
+  .decide .reasons button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+  .decide textarea,.decide input,.pb textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--surface);resize:vertical}
+  .decide label{font-size:13px;font-weight:600;color:var(--muted)}
+  .err{color:var(--stop);font-size:13px;font-weight:600}
+
+  .cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+  .col{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px}
+  .col h3{margin:0 0 8px;font-size:14px;display:flex;justify-content:space-between}
+  .col h3 span{font-family:var(--mono);color:var(--muted)}
+  .mini{padding:8px 0;border-top:1px solid var(--line);font-size:14px}
+  .mini:first-of-type{border-top:0}
+  .mini small{display:block;color:var(--muted);font-size:12.5px}
+
+  .run{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:12px}
+  .run h3{margin:0 0 4px;font-size:16px;display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+  .run .meta{color:var(--muted);font-size:13px}
+  .log{font-family:var(--mono);font-size:12.5px;background:var(--bg);border-radius:8px;padding:10px 12px;margin-top:10px;max-height:340px;overflow:auto}
+  .log div{padding:2px 0;white-space:pre-wrap}
+  .log .t{color:var(--muted)} .log .a{color:var(--accent);font-weight:600}
+
+  .flow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:16px}
+  .flow .step{background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:4px 12px;font-size:13px;font-weight:600}
+  .flow .step b{font-family:var(--mono);color:var(--accent);margin-right:4px}
+  .flow .arrow{color:var(--muted)}
+  .agents{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+  .agent{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+  .agent .ahead{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:6px}
+  .agent .num{font-family:var(--mono);font-weight:600;color:var(--accent)}
+  .agent h3{margin:0;font-size:16px}
+  .agent p{margin:0 0 8px;font-size:14px}
+  .agent dl{display:grid;grid-template-columns:auto 1fr;gap:4px 10px;margin:0;font-size:13px}
+  .agent dt{color:var(--muted);font-weight:600}
+  .agent dd{margin:0}
+  .agent .astat{font-size:12.5px;color:var(--muted);margin:10px 0 0;border-top:1px solid var(--line);padding-top:8px}
+  .agent .astat b{font-family:var(--mono);color:var(--ink)}
+  .add{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 16px;margin-bottom:12px}
+  .add summary{cursor:pointer;font-weight:700}
+  .add form{display:grid;gap:6px;margin-top:10px}
+  .add label{font-size:13px;font-weight:600;color:var(--muted)}
+  .add input,.add select,.add textarea{width:100%;border:1px solid var(--line);border-radius:8px;padding:8px 10px;background:var(--surface)}
+  .addgrid{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);gap:10px}
+  .waiting{background:var(--accent-soft);border-radius:12px;padding:12px 16px;margin-bottom:12px;font-size:14px}
+  .waiting b{display:block;margin-bottom:4px}
+  .waiting ul{margin:0;padding-left:18px}
+  .chip.mine{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+  .pb textarea{font-family:var(--mono);font-size:13px;min-height:520px}
+  .pb .bar2{display:flex;gap:10px;align-items:center;margin:10px 0}
+  .muted{color:var(--muted)}
+  .loading{color:var(--muted);padding:20px 0}
+
+  /* Live sites */
+  .site{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px 18px;margin-bottom:12px}
+  .site .shead{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;justify-content:space-between}
+  .site h2{font-size:18px;margin:0;font-weight:700}
+  .site .smeta{color:var(--muted);font-size:13.5px;margin:2px 0 10px}
+  .site .verdict{padding:10px 12px;border-radius:10px;background:var(--bg);font-size:14px;margin-bottom:12px}
+  .site .verdict b{display:block}
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-bottom:12px}
+  .kpis div{background:var(--surface);padding:10px 12px}
+  .kpis b{display:block;font-family:var(--mono);font-size:18px;font-variant-numeric:tabular-nums}
+  .kpis span{font-size:12px;color:var(--muted)}
+  .spark{display:block;width:100%;height:64px;margin:0 0 10px}
+  .spark rect{fill:var(--accent)} .spark line{stroke:var(--line)} .spark text{fill:var(--muted);font:11px var(--mono)}
+  table.wk{width:100%;border-collapse:collapse;font-size:13.5px}
+  table.wk th{text-align:left;color:var(--muted);font-weight:600;font-size:12px;padding:6px 8px;border-bottom:1px solid var(--line)}
+  table.wk td{padding:6px 8px;border-bottom:1px solid var(--line);font-variant-numeric:tabular-nums}
+  table.wk td.n{font-family:var(--mono);text-align:right} table.wk th.n{text-align:right}
+  .wkwrap{overflow-x:auto}
+  .logform{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px 10px;margin-top:10px}
+  .logform label{font-size:12.5px;font-weight:600;color:var(--muted);display:grid;gap:3px}
+  .logform input{width:100%;border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:var(--surface)}
+  .logform .wide{grid-column:1/-1}
+  .rule{font-size:13.5px;color:var(--muted);margin:0 0 14px}
+  .todo{margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+  .todo h3{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:0 0 6px;display:flex;justify-content:space-between;align-items:center}
+  .todo h3 span{font-weight:600;text-transform:none;letter-spacing:0}
+  .todo .bar{height:5px;background:var(--line);border-radius:3px;overflow:hidden;margin-bottom:8px}
+  .todo .bar i{display:block;height:100%;background:var(--accent)}
+  .todo ul{list-style:none;margin:0;padding:0}
+  .todo li{display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-bottom:1px dashed var(--line);font-size:14.5px}
+  .todo li:last-child{border-bottom:0}
+  .todo input[type=checkbox]{width:18px;height:18px;margin-top:2px;flex:none;accent-color:var(--accent)}
+  .todo li.done label{color:var(--muted);text-decoration:line-through}
+  .todo label{flex:1;cursor:pointer}
+  .todo .when{font-size:12px;color:var(--muted);margin-left:6px;text-decoration:none;display:inline-block}
+  .todo .x{border:0;background:none;color:var(--muted);font-size:16px;line-height:1;padding:0 4px;opacity:.6}
+  .todo .x:hover{opacity:1}
+  .todo form{display:flex;gap:6px;margin-top:8px}
+  .todo form input{flex:1;border:1px solid var(--line);border-radius:8px;padding:7px 9px;background:var(--surface)}
+  .todo .phase{font-size:11.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;padding:8px 0 2px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Idea Lab</h1>
+      <p class="sub">Agent-generated site ideas, ranked. You make the call.</p>
+    </div>
+    <nav aria-label="Views">
+      <a href="#leaderboard" data-v="leaderboard">Leaderboard</a>
+      <a href="#decided" data-v="decided">Your picks</a>
+      <a href="#sites" data-v="sites">Live sites</a>
+      <a href="#pipeline" data-v="pipeline">Pipeline</a>
+      <a href="#runs" data-v="runs">Runs &amp; logs</a>
+      <a href="#agents" data-v="agents">Agents</a>
+      <a href="#playbook" data-v="playbook">Playbook</a>
+    </nav>
+  </header>
+
+  <div class="strip" id="strip">
+    <div><b id="sNext">–</b><span id="sNextLbl">Next run</span></div>
+    <div><b id="sLast">–</b><span>Last run</span></div>
+    <div><b id="sOpen">–</b><span>Awaiting your call</span></div>
+    <div><b id="sPicked">–</b><span>Picked to build</span></div>
+    <div><b id="sHosted">–</b><span>Hosted</span></div>
+    <div><b id="sKilled">–</b><span>Killed by critics</span></div>
+  </div>
+  <p class="note" id="status">Loading…</p>
+  <div class="runnow" id="runNow">
+    <button class="btn go" id="rnBtn" type="button">Run now</button>
+    <span class="msg" id="rnMsg" role="status"></span>
+  </div>
+
+  <section class="view" id="v-leaderboard">
+    <details class="add" id="addBox">
+      <summary>Add your own idea</summary>
+      <form id="addForm" autocomplete="off">
+        <div class="addgrid">
+          <div><label for="addTitle">Name</label><input id="addTitle" required maxlength="80" placeholder="e.g. Horde"></div>
+          <div><label for="addKind">Type</label><select id="addKind"><option value="game">Game</option><option value="tool">Tool</option><option value="calculator">Calculator</option><option value="reference">Reference / content</option><option value="community">Community / social</option></select></div>
+        </div>
+        <label for="addPitch">One-line pitch</label><input id="addPitch" required maxlength="200" placeholder="What a visitor gets, in one sentence">
+        <label for="addNotes">Notes (optional)</label><textarea id="addNotes" rows="3" placeholder="Style, audience, features, anything the agents should know"></textarea>
+        <div class="actions" style="margin-top:4px"><button class="btn go" type="submit">Add to next run</button><span id="addMsg" class="muted"></span></div>
+      </form>
+    </details>
+    <div id="waiting"></div>
+    <div id="board"></div>
+  </section>
+  <section class="view" id="v-decided"><div id="decided"></div></section>
+  <section class="view" id="v-sites">
+    <p class="rule">Every Monday, log last week's numbers from Cloudflare Web Analytics. Judge each site on regulars, not early ad money. At week 4, 50+ daily visits on days you didn't post anywhere means keep going, and under 10 means one more push. At week 8, still roughly zero means stop putting time in, but leave the site up. The agents read these results before each run.</p>
+    <div id="sites"></div>
+    <details class="add" id="siteAddBox">
+      <summary>Add a launched site</summary>
+      <form id="siteForm" autocomplete="off">
+        <div class="addgrid">
+          <div><label for="siteName">Name</label><input id="siteName" required maxlength="60" placeholder="e.g. Dawn Chorus Daily"></div>
+          <div><label for="siteLaunch">Launched</label><input id="siteLaunch" type="date" required></div>
+        </div>
+        <label for="siteUrl">Live URL</label><input id="siteUrl" required placeholder="https://…">
+        <label for="siteIdea">Idea Lab idea (optional)</label><select id="siteIdea"><option value="">None</option></select>
+        <div class="actions" style="margin-top:4px"><button class="btn go" type="submit">Add site</button><span id="siteMsg" class="muted"></span></div>
+      </form>
+    </details>
+  </section>
+  <section class="view" id="v-pipeline"><div class="cols" id="pipe"></div></section>
+  <section class="view" id="v-runs"><div id="runs"></div></section>
+  <section class="view" id="v-agents"><div id="agents"></div></section>
+  <section class="view" id="v-playbook">
+    <div class="pb">
+      <p class="muted">Every run reads this before starting. Edit it here to change how the agents work; the next run picks it up.</p>
+      <div class="bar2"><button class="btn go" id="pbSave" type="button">Save playbook</button><span id="pbMsg" class="muted"></span></div>
+      <label class="muted" for="pbText">Playbook</label>
+      <textarea id="pbText" spellcheck="false"></textarea>
+    </div>
+  </section>
+</div>
+
+<script>
+(() => {
+  "use strict";
+
+  const WEIGHTS = [
+    ["demand", "Demand evidence", 3],
+    ["audience", "Audience size", 2],
+    ["gap", "Beatable", 2],
+    ["build", "Buildable in a week", 2],
+    ["share", "Repeat or share", 2],
+    ["ads", "Ad fit", 1],
+    ["fun", "Fun factor", 1],
+  ];
+  const WSUM = WEIGHTS.reduce((s, w) => s + w[2], 0);
+
+  const STAGE_LABEL = {
+    submitted: "Your idea, queued", scouted: "Scouted", generated: "Generated", critiqued: "Critiqued", revising: "Being revised", validated: "Validated",
+    judged: "Judged", shortlisted: "Shortlisted", killed: "Killed by critic", selected: "Picked", building: "Building",
+    hosted: "Hosted", parked: "Parked", rejected: "Rejected"
+  };
+  const PIPE_ORDER = ["submitted", "shortlisted", "judged", "revising", "killed", "selected", "building", "hosted", "parked", "rejected"];
+  const REASONS = {
+    reject: ["Already exists", "No real demand", "Too hard to build", "Boring", "Bad for ads", "Legal or data risk", "Duplicate"],
+    park: ["Good, not now", "Needs data source", "Seasonal: revisit", "Needs a better angle"],
+    select: ["Strong demand", "Easy win", "Fun to build", "Good for search", "Shareable"]
+  };
+
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const safeUrl = u => /^https?:\/\//i.test(String(u || "")) ? String(u) : null;
+  const link = (u, label) => { const s = safeUrl(u); return s ? `<a href="${esc(s)}" target="_blank" rel="noopener">${esc(label || s.replace(/^https?:\/\//, "").slice(0, 60))}</a>` : esc(label || ""); };
+  const fmtDate = iso => { const d = new Date(iso); return isNaN(d) ? "–" : d.toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); };
+  const list = a => Array.isArray(a) ? a : (a ? [a] : []);
+
+  function total(idea) {
+    const s = idea.scores || {};
+    if (!WEIGHTS.some(([k]) => typeof s[k] === "number")) return typeof idea.total === "number" ? idea.total : null;
+    // Ideas scored before a criterion existed are totalled over the criteria they have.
+    const used = WEIGHTS.filter(([k]) => typeof s[k] === "number");
+    const raw = used.reduce((acc, [k, , w]) => acc + w * Math.max(0, Math.min(5, Number(s[k]) || 0)), 0);
+    const max = used.reduce((acc, [, , w]) => acc + 5 * w, 0);
+    return Math.round(raw / max * 100);
+  }
+
+  let db = null;
+  let ideas = [], runs = [], playbook = null, roster = null, schedule = null;
+
+  // Next run from config/schedule: {tz, days:[1-7, Mon=1], times:["HH:MM"], label}
+  function nextRun(s) {
+    if (!s || !Array.isArray(s.days) || !Array.isArray(s.times)) return null;
+    const tz = s.tz || "Europe/London";
+    const now = new Date();
+    for (let d = 0; d < 8; d++) {
+      for (const t of [...s.times].sort()) {
+        const [hh, mm] = t.split(":").map(Number);
+        // Build the candidate as wall-clock time in tz by probing the offset.
+        const base = new Date(now.getTime() + d * 86400000);
+        const ymd = new Intl.DateTimeFormat("en-CA", { timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit" }).format(base);
+        const wd = new Intl.DateTimeFormat("en-GB", { timeZone: tz, weekday: "short" }).format(base);
+        const dow = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].indexOf(wd) + 1;
+        if (!s.days.includes(dow)) continue;
+        const guess = new Date(`${ymd}T${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}:00Z`);
+        const shown = new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false }).format(guess);
+        const [sh, sm] = shown.split(":").map(Number);
+        const cand = new Date(guess.getTime() - ((sh * 60 + sm) - (hh * 60 + mm)) * 60000);
+        if (cand > now) return cand;
+      }
+    }
+    return null;
+  }
+  const openPanels = new Map();   // ideaId -> {kind, reasons:Set, text, url}
+  let writable = true;
+
+  // ---------- routing ----------
+  const VIEWS = ["leaderboard", "decided", "sites", "pipeline", "runs", "agents", "playbook"];
+  function route() {
+    const v = VIEWS.includes(location.hash.slice(1)) ? location.hash.slice(1) : "leaderboard";
+    VIEWS.forEach(x => $("v-" + x).classList.toggle("on", x === v));
+    document.querySelectorAll("nav a").forEach(a => a.dataset.v === v ? a.setAttribute("aria-current", "page") : a.removeAttribute("aria-current"));
+  }
+  window.addEventListener("hashchange", route);
+  route();
+
+  // ---------- render ----------
+  function scoreBars(idea) {
+    const s = idea.scores || {};
+    return `<div class="bars">${WEIGHTS.map(([k, label, w]) => {
+      if (typeof s[k] !== "number") return "";
+      const v = Number(s[k]) || 0;
+      return `<div class="bar"><div class="row"><span>${label} <span class="muted">×${w}</span></span><b>${v}/5</b></div>
+        <div class="track"><div class="fill" style="width:${v / 5 * 100}%"></div></div></div>`;
+    }).join("")}</div>`;
+  }
+
+  function stageChip(st) {
+    const cls = st === "selected" || st === "building" || st === "hosted" ? "go" : st === "parked" ? "hold" : st === "rejected" || st === "killed" ? "stop" : "stage";
+    return `<span class="chip ${cls}">${esc(STAGE_LABEL[st] || st || "–")}</span>`;
+  }
+
+  function evidence(idea) {
+    const sig = list(idea.signals).map(x => `<li>${esc(x.text || x)}${x.url ? " · " + link(x.url, "source") : ""}</li>`).join("");
+    const comp = list(idea.competitors).map(x => `<li>${x.url ? link(x.url, x.name) : esc(x.name || x)}${x.note ? ": " + esc(x.note) : ""}${x.weakness ? ` <span class="muted">· weak spot: ${esc(x.weakness)}</span>` : ""}</li>`).join("");
+    const risks = list(idea.risks).map(x => `<li>${esc(x)}</li>`).join("");
+    const revs = list(idea.revisions).map(r => `<li><b>v${esc(r.v)}</b> · ${esc(r.by || "reviser")}: ${esc(r.change || "")}${r.reason ? ` <span class="muted">(critic said: ${esc(r.reason)})</span>` : ""}</li>`).join("");
+    const fc = idea.fact_check;
+    const fcList = fc ? list(fc.checks).map(c => `<li>${c.ok ? "✓" : "✗"} ${esc(c.claim)}${c.url ? " · " + link(c.url, "source") : ""}${c.note ? ` <span class="muted">${esc(c.note)}</span>` : ""}</li>`).join("") : "";
+    const hist = list(idea.history).slice(-20).map(h => `<div>${esc(fmtDate(h.at))} · ${esc(h.by || "")} · ${esc(STAGE_LABEL[h.stage] || h.stage || "")}${h.note ? " · " + esc(h.note) : ""}</div>`).join("");
+    return `<details class="ev"><summary>Evidence, plan and history</summary><div class="evgrid">
+      <div><h3>Why people want it</h3>${sig ? `<ul>${sig}</ul>` : `<p class="muted">No signals recorded.</p>`}</div>
+      ${idea.audience_estimate ? `<div><h3>Audience</h3><p>${esc(idea.audience_estimate)}</p>${idea.audience_source ? `<p class="muted">${link(idea.audience_source, "source")}</p>` : ""}</div>` : ""}
+      <div><h3>How we'd win</h3>${idea.wedge ? `<p><b>Wedge:</b> ${esc(idea.wedge)}</p>` : ""}${idea.serp_note ? `<p class="muted">Who ranks: ${esc(idea.serp_note)}</p>` : ""}${idea.gap_note ? `<p>${esc(idea.gap_note)}</p>` : ""}${!idea.wedge && !idea.serp_note && !idea.gap_note ? `<p class="muted">Not assessed yet.</p>` : ""}</div>
+      <div><h3>Competitors</h3>${comp ? `<ul>${comp}</ul>` : `<p class="muted">None found.</p>`}</div>
+      ${idea.notes ? `<div><h3>Your notes</h3><p>${esc(idea.notes)}</p></div>` : ""}
+      <div><h3>Build plan</h3><p>${esc(idea.build_plan || "–")}</p>${idea.data_sources ? `<p class="muted">Data: ${esc(list(idea.data_sources).join(", "))}</p>` : ""}</div>
+      <div><h3>Traffic and money</h3><p>${esc(idea.traffic_plan || "–")}</p>${idea.monetisation ? `<p class="muted">${esc(idea.monetisation)}</p>` : ""}</div>
+      <div><h3>Risks</h3>${risks ? `<ul>${risks}</ul>` : `<p class="muted">None noted.</p>`}</div>
+      <div><h3>Judge's notes</h3><p>${esc(idea.judge_notes || "–")}</p></div>
+      ${revs ? `<div><h3>Revisions</h3>${idea.original_pitch ? `<p class="muted">Started as: ${esc(idea.original_pitch)}</p>` : ""}<ul>${revs}</ul></div>` : ""}
+      ${fc ? `<div><h3>Fact-check</h3><p>${esc(fc.summary || "")}</p>${fcList ? `<ul>${fcList}</ul>` : ""}</div>` : ""}
+      ${idea.parent ? `<div><h3>Spun off from</h3><p>${esc(idea.parent)}</p></div>` : ""}
+    </div>${hist ? `<div class="hist">${hist}</div>` : ""}</details>`;
+  }
+
+  function decidePanel(idea) {
+    const p = openPanels.get(idea._id);
+    if (!p) return "";
+    const kindLabel = { select: "Build it", park: "Park it", reject: "Reject it", host: "Mark as hosted", building: "Mark as building" }[p.kind];
+    const reasons = REASONS[p.kind] || [];
+    return `<div class="decide" data-id="${esc(idea._id)}">
+      ${reasons.length ? `<label>Why? Agents read this next run.</label><div class="reasons">${reasons.map(r =>
+        `<button type="button" data-reason="${esc(r)}" aria-pressed="${p.reasons.has(r)}">${esc(r)}</button>`).join("")}</div>` : ""}
+      ${p.kind === "host" ? `<label for="url-${esc(idea._id)}">Live URL</label><input id="url-${esc(idea._id)}" data-field="url" placeholder="https://…" value="${esc(p.url || "")}">` : ""}
+      <label for="why-${esc(idea._id)}">${p.kind === "host" || p.kind === "building" ? "Note (optional)" : "In your words (optional)"}</label>
+      <textarea id="why-${esc(idea._id)}" data-field="text" rows="2">${esc(p.text || "")}</textarea>
+      <div class="actions" style="margin-top:0">
+        <button class="btn ${p.kind === "reject" ? "stop" : p.kind === "park" ? "hold" : "go"}" type="button" data-act="confirm">${kindLabel}</button>
+        <button class="btn" type="button" data-act="cancel">Cancel</button>
+        <span class="err" data-err></span>
+      </div></div>`;
+  }
+
+  function card(idea, rank, opts = {}) {
+    const t = total(idea);
+    const d = idea.decision;
+    const btns = opts.decided
+      ? (idea.stage === "selected" ? `<button class="btn" data-open="building">Mark as building</button><button class="btn go" data-open="host">Mark as hosted</button>`
+        : idea.stage === "building" ? `<button class="btn go" data-open="host">Mark as hosted</button>` : "")
+        + (idea.stage !== "hosted" ? `<button class="btn" data-act="undo">Undo decision</button>` : "")
+      : `<button class="btn go" data-open="select">Build it</button><button class="btn hold" data-open="park">Park</button><button class="btn stop" data-open="reject">Reject</button>`;
+    return `<article class="card${rank === 1 && !opts.decided ? " top" : ""}" data-id="${esc(idea._id)}">
+      <div class="rank">${rank ? `<div class="n">#${rank}</div>` : ""}<div class="score">${t ?? "–"}</div><div class="of">/100</div></div>
+      <div>
+        <h2>${esc(idea.title)}</h2>
+        <p class="pitch">${esc(idea.pitch)}</p>
+        <div class="chips">${idea.source === "michael" ? `<span class="chip mine">Your idea</span>` : ""}${stageChip(idea.stage)}${idea.kind ? `<span class="chip">${esc(idea.kind)}</span>` : ""}
+          ${list(idea.revisions).length ? `<span class="chip">revised ×${list(idea.revisions).length}</span>` : ""}
+          ${idea.fact_check ? `<span class="chip ${idea.fact_check.status === "passed" ? "go" : "hold"}">${idea.fact_check.status === "passed" ? "Fact-checked" : "Fact-check flags"}</span>` : ""}
+          ${idea.search_phrase ? `<span class="chip">“${esc(idea.search_phrase)}”</span>` : ""}
+          <span class="chip">${esc(fmtDate(idea.created_at))}</span>
+          ${idea.hosted_url ? `<span class="chip go">${link(idea.hosted_url, "live site")}</span>` : ""}</div>
+        ${d && opts.decided ? `<p class="muted" style="margin:0 0 8px">Your call: <b>${esc(STAGE_LABEL[d.status] || d.status)}</b>${list(d.reasons).length ? " · " + esc(list(d.reasons).join(", ")) : ""}${d.text ? " · “" + esc(d.text) + "”" : ""}</p>` : ""}
+      </div>
+      <div>${scoreBars(idea)}</div>
+      <div>${evidence(idea)}
+        ${writable ? `<div class="actions">${btns}</div>` : ""}
+        ${decidePanel(idea)}</div>
+    </article>`;
+  }
+
+  function renderStrip() {
+    const last = runs[0];
+    $("sLast").textContent = last ? fmtDate(last.started_at) : "None yet";
+    const nx = nextRun(schedule);
+    $("sNext").textContent = nx ? fmtDate(nx.toISOString()) : (schedule ? "Paused" : "Not set");
+    $("sNextLbl").textContent = schedule?.label ? `Next run · ${schedule.label}` : "Next run";
+    $("sOpen").textContent = ideas.filter(i => ["shortlisted", "judged"].includes(i.stage)).length;
+    $("sPicked").textContent = ideas.filter(i => ["selected", "building"].includes(i.stage)).length;
+    $("sHosted").textContent = ideas.filter(i => i.stage === "hosted").length;
+    $("sKilled").textContent = ideas.filter(i => i.stage === "killed").length;
+  }
+
+  function renderWaiting() {
+    const q = ideas.filter(i => i.stage === "submitted");
+    $("waiting").innerHTML = q.length ? `<div class="waiting"><b>${q.length} of your idea${q.length > 1 ? "s" : ""} queued for the next run</b><ul>${q.map(i =>
+      `<li>${esc(i.title)}: ${esc(i.pitch)}</li>`).join("")}</ul></div>` : "";
+  }
+
+  function slugify(s) { return String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 50) || "idea"; }
+
+  $("addForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    if (!db || !writable) { $("addMsg").textContent = "Can't save here: the database isn't available."; return; }
+    const title = $("addTitle").value.trim(), pitch = $("addPitch").value.trim();
+    if (!title || !pitch) return;
+    const now = new Date().toISOString();
+    let id = "mine-" + slugify(title);
+    if (ideas.some(i => i._id === id)) id += "-" + Math.random().toString(36).slice(2, 6);
+    const btn = e.target.querySelector("button"); btn.disabled = true;
+    try {
+      await db.doc("ideas/" + id).set({ title, pitch, kind: $("addKind").value, notes: $("addNotes").value.trim(),
+        source: "michael", stage: "submitted", created_at: now, updated_at: now,
+        history: [{ at: now, by: "Michael", stage: "submitted", note: "Added from the page" }] });
+      e.target.reset(); $("addMsg").textContent = "Added. The next run will critique it.";
+    } catch { $("addMsg").textContent = "Couldn't save. Try again."; }
+    btn.disabled = false;
+  });
+
+  function renderBoard() {
+    const open = ideas.filter(i => ["shortlisted", "judged"].includes(i.stage)).sort((a, b) => (total(b) ?? -1) - (total(a) ?? -1));
+    $("board").innerHTML = open.length ? open.map((i, n) => card(i, n + 1)).join("")
+      : `<div class="empty">${ideas.length ? "You've decided on everything. The next run will add more." : "No ideas yet. Ask Claude to start a run, or wait for the scheduled one."}</div>`;
+  }
+
+  function renderDecided() {
+    const done = ideas.filter(i => ["selected", "building", "hosted", "parked", "rejected"].includes(i.stage))
+      .sort((a, b) => String(b.decision?.at || "").localeCompare(String(a.decision?.at || "")));
+    $("decided").innerHTML = done.length ? done.map(i => card(i, 0, { decided: true })).join("")
+      : `<div class="empty">Nothing decided yet. Your build, park and reject calls show up here.</div>`;
+  }
+
+  function renderPipe() {
+    $("pipe").innerHTML = PIPE_ORDER.map(st => {
+      const xs = ideas.filter(i => i.stage === st).sort((a, b) => (total(b) ?? -1) - (total(a) ?? -1));
+      return `<div class="col"><h3>${esc(STAGE_LABEL[st])}<span>${xs.length}</span></h3>${xs.slice(0, 40).map(i =>
+        `<div class="mini">${esc(i.title)}<small>${total(i) != null ? total(i) + "/100 · " : ""}${esc(i.stage_note || i.decision?.text || list(i.decision?.reasons).join(", ") || i.pitch || "")}</small></div>`).join("") || `<p class="muted" style="margin:0;font-size:13px">None</p>`}</div>`;
+    }).join("");
+  }
+
+  function renderRuns() {
+    $("runs").innerHTML = runs.length ? runs.map(r => {
+      const c = r.counts || {};
+      const st = r.status === "done" ? "go" : r.status === "running" ? "stage" : "stop";
+      const mins = r.ended_at && r.started_at ? Math.round((new Date(r.ended_at) - new Date(r.started_at)) / 60000) : null;
+      return `<div class="run"><h3>${esc(fmtDate(r.started_at))} <span class="chip ${st}">${esc(r.status || "?")}</span>
+          <span class="chip">${esc(r.timebox_min ?? "?")} min timebox${mins != null ? " · took " + mins + " min" : ""}</span>
+          ${r.stopped_at_phase ? `<span class="chip hold">stopped at: ${esc(r.stopped_at_phase)}</span>` : ""}</h3>
+        <div class="meta">${["signals", "generated", "duplicates", "revised", "killed", "judged", "fact_checked", "shortlisted"].filter(k => k in c || ["signals","generated","killed","shortlisted"].includes(k)).map(k => `${k} <b>${esc(c[k] ?? 0)}</b>`).join(" · ")}</div>
+        ${r.summary ? `<p style="margin:8px 0 0">${esc(r.summary)}</p>` : ""}
+        ${r.lessons ? `<p class="muted" style="margin:6px 0 0">Lessons for next run: ${esc(r.lessons)}</p>` : ""}
+        ${list(r.trends).length ? `<details><summary class="muted" style="cursor:pointer;margin-top:8px">Trends spotted (${list(r.trends).length})</summary><ul style="margin:6px 0 0;padding-left:18px;font-size:14px">${list(r.trends).map(t =>
+          `<li><b>${esc(t.trend)}</b> <span class="chip ${t.momentum === "rising" ? "go" : t.momentum === "fading" ? "stop" : "hold"}">${esc(t.momentum || "")}</span> ${esc(t.why_now || "")}${t.evidence_url ? " · " + link(t.evidence_url, "source") : ""}</li>`).join("")}</ul></details>` : ""}
+        <details><summary class="muted" style="cursor:pointer;margin-top:8px">Log (${list(r.log).length} lines)</summary>
+        <div class="log">${list(r.log).map(l => `<div><span class="t">${esc((l.t || "").slice(11, 19))}</span> <span class="a">${esc(l.agent || "")}</span> ${esc(l.msg || "")}</div>`).join("")}</div></details>
+      </div>`;
+    }).join("") : `<div class="empty">No runs yet.</div>`;
+  }
+
+  function renderAgents() {
+    const roles = list(roster?.roles);
+    const last = runs[0];
+    const stats = last?.agent_stats || {};
+    if (!roles.length) { $("agents").innerHTML = `<div class="empty">No agent roster saved yet.</div>`; return; }
+    $("agents").innerHTML = `
+      <p class="muted" style="margin:0 0 14px">${esc(roster.summary || "")}${last ? ` Stats are from the last run (${esc(fmtDate(last.started_at))}).` : ""}</p>
+      <div class="flow">${roles.map((r, i) => `<span class="step"><b>${i + 1}</b> ${esc(r.name)}</span>`).join('<span class="arrow" aria-hidden="true">→</span>')}</div>
+      <div class="agents">${roles.map((r, i) => {
+        const s = stats[r.id];
+        return `<article class="agent">
+          <div class="ahead"><span class="num">${i + 1}</span><h3>${esc(r.name)}</h3>${r.count ? `<span class="chip">${esc(r.count)}</span>` : ""}${r.isNew ? `<span class="chip stage">new</span>` : ""}</div>
+          <p>${esc(r.does)}</p>
+          <dl><dt>Sees</dt><dd>${esc(r.sees || "–")}</dd><dt>Returns</dt><dd>${esc(r.outputs || "–")}</dd>${r.guard ? `<dt>Guardrail</dt><dd>${esc(r.guard)}</dd>` : ""}</dl>
+          ${s ? `<p class="astat">Last run: ${Object.entries(s).map(([k, v]) => `${esc(k)} <b>${esc(v)}</b>`).join(" · ")}</p>` : ""}
+        </article>`;
+      }).join("")}</div>`;
+  }
+
+  function renderPlaybook() {
+    const ta = $("pbText");
+    if (document.activeElement !== ta) ta.value = playbook?.text || "";
+    $("pbMsg").textContent = playbook ? `Version ${playbook.version ?? "?"} · updated ${fmtDate(playbook.updated_at)}` : "No playbook saved yet.";
+    $("pbSave").disabled = !writable;
+  }
+
+  // ---------- live sites ----------
+  // sites/<id>: {name, url, idea_id, launched:"YYYY-MM-DD", status:"live"|"stopped", weeks:[{week_start, visits, quiet_avg, referrer, earnings, note, logged_at}]}
+  let sites = [];
+  const DAY = 86400000;
+  const ymdLondon = d => new Intl.DateTimeFormat("en-CA", { timeZone: "Europe/London", year: "numeric", month: "2-digit", day: "2-digit" }).format(d);
+  const parseYmd = s => { const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || "")); return m ? Date.UTC(+m[1], +m[2] - 1, +m[3]) : NaN; };
+  const todayUtc = () => parseYmd(ymdLondon(new Date()));
+  const addDays = (s, n) => new Date(parseYmd(s) + n * DAY).toISOString().slice(0, 10);
+  const fmtDay = s => isNaN(parseYmd(s)) ? "–" : new Date(parseYmd(s)).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+  const num = v => typeof v === "number" && isFinite(v) ? v : null;
+  const fmtNum = v => num(v) == null ? "–" : Math.round(v).toLocaleString("en-GB");
+  // Monday of the last full week (Mon–Sun) before today.
+  function lastWeekStart() { const t = todayUtc(); const dow = (new Date(t).getUTCDay() + 6) % 7; return new Date(t - (dow + 7) * DAY).toISOString().slice(0, 10); }
+  const weeksOf = s => list(s.weeks).filter(w => !isNaN(parseYmd(w.week_start))).sort((a, b) => b.week_start.localeCompare(a.week_start));
+
+  function siteVerdict(s) {
+    const days = Math.floor((todayUtc() - parseYmd(s.launched)) / DAY);
+    const week = Math.max(1, Math.floor(Math.max(0, days) / 7) + 1);
+    const latest = weeksOf(s)[0];
+    const q = latest ? num(latest.quiet_avg) : null;
+    const w4 = addDays(s.launched, 28), w8 = addDays(s.launched, 56);
+    if (s.status === "stopped") return { cls: "stop", label: "Stopped", text: "You stopped putting time into this one. The site stays up." };
+    if (isNaN(days)) return { cls: "hold", label: "No launch date", text: "Add the launch date to track checkpoints." };
+    if (days < 28) return { cls: "stage", label: `Launch phase · week ${week}`, text: `Get the first players in. Week 4 check on ${fmtDay(w4)}.` };
+    if (q == null) return { cls: "hold", label: "Needs numbers", text: "Log last week's visits to get a verdict." };
+    if (q >= 50) return { cls: "go", label: "Keep going", text: `${fmtNum(q)} visits a day on days you didn't post. People are coming back on their own.` };
+    if (days < 56) return q < 10
+      ? { cls: "hold", label: "Push once more", text: `Only ${fmtNum(q)} a day on days you didn't post. Try one new channel before the week 8 check on ${fmtDay(w8)}.` }
+      : { cls: "hold", label: "Building", text: `${fmtNum(q)} a day on days you didn't post. Keep promoting. Week 8 check on ${fmtDay(w8)}.` };
+    if (q < 10) return { cls: "stop", label: "Stop putting time in", text: `Still ${fmtNum(q)} a day on days you didn't post after 8 weeks. Leave it running and move on.` };
+    return { cls: "hold", label: "Slow burner", text: `${fmtNum(q)} a day on days you didn't post. Worth keeping up, with low effort only.` };
+  }
+  function logDue(s) {
+    const ws = lastWeekStart();
+    return s.status !== "stopped" && parseYmd(s.launched) <= parseYmd(ws) + 6 * DAY && !list(s.weeks).some(w => w.week_start === ws);
+  }
+
+  function spark(ws) {
+    const xs = [...ws].reverse().slice(-12);
+    if (xs.length < 3) return "";
+    const max = Math.max(1, ...xs.map(w => num(w.visits) || 0));
+    const W = 600, H = 64, gap = 6, bw = Math.min(36, (W - gap * (xs.length - 1)) / xs.length);
+    return `<svg class="spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="xMinYMid meet" role="img" aria-label="Weekly visits, oldest to newest">
+      <line x1="0" y1="${H - 0.5}" x2="${W}" y2="${H - 0.5}"/>
+      ${xs.map((w, i) => { const h = Math.max(1, (num(w.visits) || 0) / max * (H - 4)); return `<rect x="${i * (bw + gap)}" y="${H - h}" width="${bw}" height="${h}" rx="2"><title>Week of ${esc(fmtDay(w.week_start))}: ${esc(fmtNum(w.visits))} visits</title></rect>`; }).join("")}
+    </svg>`;
+  }
+
+  function siteCard(s) {
+    const v = siteVerdict(s), ws = weeksOf(s), latest = ws[0];
+    const totalVisits = ws.reduce((a, w) => a + (num(w.visits) || 0), 0);
+    const earned = ws.reduce((a, w) => a + (num(w.earnings) || 0), 0);
+    const idea = ideas.find(i => i._id === s.idea_id);
+    return `<article class="site" data-site="${esc(s._id)}">
+      <div class="shead"><h2>${esc(s.name)}</h2>
+        <div class="chips" style="margin:0"><span class="chip ${v.cls}">${esc(v.label)}</span>${logDue(s) ? `<span class="chip hold">Log week of ${esc(fmtDay(lastWeekStart()))}</span>` : ""}</div></div>
+      <p class="smeta">${link(s.url)} · launched ${esc(fmtDay(s.launched))}${idea ? ` · idea: ${esc(idea.title)}${total(idea) != null ? ` (scored ${total(idea)}/100)` : ""}` : ""}</p>
+      <div class="verdict">${esc(v.text)}</div>
+      <div class="kpis">
+        <div><b>${fmtNum(latest?.visits)}</b><span>Visits last logged week</span></div>
+        <div><b>${fmtNum(latest?.quiet_avg)}</b><span>A day, days you didn't post</span></div>
+        <div><b>${fmtNum(totalVisits)}</b><span>Visits logged in total</span></div>
+        <div><b>£${earned.toFixed(2)}</b><span>Ad earnings (£60 payout)</span></div>
+      </div>
+      ${spark(ws)}
+      ${ws.length ? `<div class="wkwrap"><table class="wk"><thead><tr><th>Week of</th><th class="n">Visits</th><th class="n">A day, no posting</th><th>Top referrer</th><th class="n">Ads £</th><th>Note</th>${writable ? "<th></th>" : ""}</tr></thead><tbody>
+        ${ws.map(w => `<tr><td>${esc(fmtDay(w.week_start))}</td><td class="n">${fmtNum(w.visits)}</td><td class="n">${fmtNum(w.quiet_avg)}</td><td>${esc(w.referrer || "–")}</td><td class="n">${num(w.earnings) == null ? "–" : num(w.earnings).toFixed(2)}</td><td>${esc(w.note || "")}</td>${writable ? `<td><button class="btn" style="padding:2px 8px;font-size:12px" data-site-act="delweek" data-week="${esc(w.week_start)}" type="button">Remove</button></td>` : ""}</tr>`).join("")}
+      </tbody></table></div>` : `<p class="muted" style="margin:0">No weeks logged yet.</p>`}
+      ${todoHtml(s)}
+      ${writable ? `<details style="margin-top:10px"><summary class="muted" style="cursor:pointer;font-weight:600">Log a week</summary>
+        <form class="logform" data-logform="${esc(s._id)}">
+          <label>Week starting (Monday)<input name="week_start" type="date" required value="${esc(lastWeekStart())}"></label>
+          <label>Visits that week<input name="visits" type="number" min="0" step="1" required inputmode="numeric"></label>
+          <label>Avg a day, days you didn't post<input name="quiet_avg" type="number" min="0" step="0.1" inputmode="decimal"></label>
+          <label>Top referrer<input name="referrer" maxlength="60" placeholder="e.g. reddit.com, direct"></label>
+          <label>Ad earnings £<input name="earnings" type="number" min="0" step="0.01" inputmode="decimal"></label>
+          <label class="wide">Note<input name="note" maxlength="200" placeholder="What you did that week, e.g. posted in r/geography"></label>
+          <div class="actions wide" style="margin:0"><button class="btn go" type="submit">Save week</button><span class="muted" data-logmsg></span></div>
+        </form></details>
+        <div class="actions"><button class="btn" type="button" data-site-act="${s.status === "stopped" ? "resume" : "stop"}">${s.status === "stopped" ? "Back to live" : "Stop putting time in"}</button></div>` : ""}
+    </article>`;
+  }
+
+  function renderSites() {
+    // Don't wipe a half-filled form when a scheduled run updates the data.
+    const a = document.activeElement;
+    if (a && $("sites").contains(a) && a.matches("input:not([type=checkbox]),select,textarea") && a.value) return;
+    const xs = [...sites].sort((a, b) => (a.status === "stopped") - (b.status === "stopped") || String(b.launched).localeCompare(String(a.launched)));
+    $("sites").innerHTML = xs.length ? xs.map(siteCard).join("") : `<div class="empty">No launched sites yet. Add one below once it's live.</div>`;
+    const sel = $("siteIdea"), cur = sel.value;
+    sel.innerHTML = `<option value="">None</option>` + ideas.filter(i => ["selected", "building", "hosted"].includes(i.stage))
+      .map(i => `<option value="${esc(i._id)}">${esc(i.title)}</option>`).join("");
+    sel.value = cur;
+    $("siteAddBox").hidden = !writable;
+  }
+
+  async function saveSite(id, patch) {
+    if (!db || !writable) throw new Error("readonly");
+    await db.doc("sites/" + id).update({ ...patch, updated_at: new Date().toISOString() });
+  }
+
+  // ---------- launch checklist ----------
+  // sites/<id>.tasks: [{id, text, phase, done, done_at}]. Seeded from this template when a site has none.
+  const TASK_TEMPLATE = [
+    ["Before posting", "Paste the link into WhatsApp and check the preview card shows a picture and title"],
+    ["Before posting", "Turn on Cloudflare Web Analytics for the site"],
+    ["Before posting", "Verify the site in Google Search Console and submit the sitemap"],
+    ["Before posting", "Play a full round on a phone over 4G"],
+    ["Before posting", "Fill in the privacy page (name, date, contact address)"],
+    ["Week 1: friends", "Send to family and friends chats; ask them to play three days running"],
+    ["Week 1: friends", "Collect three share grids from friends as proof it works"],
+    ["Week 1: public", "Post in the two most relevant subreddits (read their self-promo rules first)"],
+    ["Week 1: public", "Post in three Facebook groups or forums for the audience"],
+    ["Week 1: public", "Email or DM one publication or community that already covers the topic"],
+    ["Week 2: directories", "Submit to daily-game directories (Playlin, Thinky Games, and similar)"],
+    ["Week 2: directories", "Reply to any 'is there a site that...' thread you found with the link"],
+    ["Week 2: ads", "Apply for AdSense once the FAQ or content pages are live"],
+    ["Ongoing", "Log last week's numbers every Monday"],
+  ];
+  const taskId = () => "t" + Math.random().toString(36).slice(2, 8);
+  const defaultTasks = () => TASK_TEMPLATE.map(([phase, text]) => ({ id: taskId(), phase, text, done: false }));
+  function todoHtml(s) {
+    const tasks = list(s.tasks);
+    if (!tasks.length && !writable) return "";
+    const done = tasks.filter(t => t.done).length, pct = tasks.length ? Math.round(done / tasks.length * 100) : 0;
+    let phase = null;
+    const items = tasks.map(t => {
+      const head = t.phase !== phase ? `<li class="phase" style="border:0;padding:${phase ? "10px" : "2px"} 0 2px">${esc(t.phase || "To do")}</li>` : "";
+      phase = t.phase;
+      return head + `<li class="${t.done ? "done" : ""}">
+        <input type="checkbox" id="tk-${esc(s._id)}-${esc(t.id)}" data-task="${esc(t.id)}" ${t.done ? "checked" : ""} ${writable ? "" : "disabled"}>
+        <label for="tk-${esc(s._id)}-${esc(t.id)}">${esc(t.text)}${t.done && t.done_at ? `<span class="when">${esc(fmtDay(t.done_at.slice(0, 10)))}</span>` : ""}</label>
+        ${writable ? `<button class="x" type="button" data-task-del="${esc(t.id)}" aria-label="Remove task">×</button>` : ""}</li>`;
+    }).join("");
+    return `<div class="todo" data-todo="${esc(s._id)}">
+      <h3>Getting it out there <span>${done}/${tasks.length}</span></h3>
+      <div class="bar"><i style="width:${pct}%"></i></div>
+      ${tasks.length ? `<ul>${items}</ul>` : `<p class="muted" style="margin:0 0 6px">No checklist yet.</p>`}
+      ${writable ? `<form data-taskform="${esc(s._id)}" autocomplete="off"><input name="text" maxlength="140" placeholder="Add a task, e.g. post in r/CasualUK" required><button class="btn" type="submit" style="padding:6px 12px">Add</button>${tasks.length ? "" : `<button class="btn" type="button" data-site-act="seedtasks" style="padding:6px 12px">Use the standard list</button>`}</form>` : ""}
+    </div>`;
+  }
+
+  document.addEventListener("change", async e => {
+    const cb = e.target.closest("[data-task]"); if (!cb) return;
+    const s = sites.find(x => x._id === cb.closest("[data-todo]")?.dataset.todo); if (!s) return;
+    const tasks = list(s.tasks).map(t => t.id === cb.dataset.task ? { ...t, done: cb.checked, done_at: cb.checked ? new Date().toISOString() : null } : t);
+    try { await saveSite(s._id, { tasks }); } catch { cb.checked = !cb.checked; $("status").textContent = "Couldn't save that tick. Try again."; }
+  });
+  document.addEventListener("submit", async e => {
+    const f = e.target.closest("[data-taskform]"); if (!f) return;
+    e.preventDefault();
+    const s = sites.find(x => x._id === f.dataset.taskform); if (!s) return;
+    const text = String(new FormData(f).get("text") || "").trim(); if (!text) return;
+    const tasks = [...list(s.tasks), { id: taskId(), phase: "Added by you", text, done: false }];
+    f.querySelector("button").disabled = true;
+    try { await saveSite(s._id, { tasks }); } catch { f.querySelector("button").disabled = false; $("status").textContent = "Couldn't save. Try again."; }
+  });
+
+  document.addEventListener("submit", async e => {
+    const f = e.target.closest("[data-logform]");
+    if (!f) return;
+    e.preventDefault();
+    const s = sites.find(x => x._id === f.dataset.logform); if (!s) return;
+    const fd = new FormData(f), msg = f.querySelector("[data-logmsg]");
+    const n = k => { const v = String(fd.get(k) ?? "").trim(); return v === "" ? null : Number(v); };
+    const week_start = String(fd.get("week_start"));
+    if (isNaN(parseYmd(week_start))) { msg.textContent = "Pick the week's Monday."; return; }
+    const entry = { week_start, visits: n("visits"), quiet_avg: n("quiet_avg"), referrer: String(fd.get("referrer") || "").trim(),
+      earnings: n("earnings"), note: String(fd.get("note") || "").trim(), logged_at: new Date().toISOString() };
+    const weeks = [...list(s.weeks).filter(w => w.week_start !== week_start), entry].sort((a, b) => a.week_start.localeCompare(b.week_start));
+    f.querySelector("button").disabled = true;
+    try { await saveSite(s._id, { weeks }); }
+    catch { msg.textContent = "Couldn't save. Try again."; f.querySelector("button").disabled = false; }
+  });
+
+  document.addEventListener("click", async e => {
+    const del = e.target.closest("[data-task-del]");
+    if (del) {
+      const s = sites.find(x => x._id === del.closest("[data-todo]")?.dataset.todo); if (!s) return;
+      try { await saveSite(s._id, { tasks: list(s.tasks).filter(t => t.id !== del.dataset.taskDel) }); } catch { $("status").textContent = "Couldn't remove that. Try again."; }
+      return;
+    }
+    const btn = e.target.closest("[data-site-act]"); if (!btn) return;
+    const s = sites.find(x => x._id === btn.closest("[data-site]")?.dataset.site); if (!s) return;
+    btn.disabled = true;
+    try {
+      if (btn.dataset.siteAct === "delweek") await saveSite(s._id, { weeks: list(s.weeks).filter(w => w.week_start !== btn.dataset.week) });
+      if (btn.dataset.siteAct === "stop") await saveSite(s._id, { status: "stopped", stopped_at: new Date().toISOString() });
+      if (btn.dataset.siteAct === "resume") await saveSite(s._id, { status: "live" });
+      if (btn.dataset.siteAct === "seedtasks") await saveSite(s._id, { tasks: defaultTasks() });
+    } catch { btn.disabled = false; $("status").textContent = "Couldn't save that change. Try again."; }
+  });
+
+  $("siteLaunch").value = ymdLondon(new Date());
+  $("siteForm").addEventListener("submit", async e => {
+    e.preventDefault();
+    if (!db || !writable) { $("siteMsg").textContent = "Can't save here: the database isn't available."; return; }
+    const name = $("siteName").value.trim(), url = $("siteUrl").value.trim(), launched = $("siteLaunch").value, idea_id = $("siteIdea").value || null;
+    if (!safeUrl(url)) { $("siteMsg").textContent = "The URL needs to start with https://"; return; }
+    let id = slugify(name); if (sites.some(s => s._id === id)) id += "-" + Math.random().toString(36).slice(2, 6);
+    const now = new Date().toISOString();
+    const btn = e.target.querySelector("button"); btn.disabled = true;
+    try {
+      await db.doc("sites/" + id).set({ name, url, launched, idea_id, status: "live", weeks: [], tasks: defaultTasks(), created_at: now, updated_at: now });
+      const idea = ideas.find(i => i._id === idea_id);
+      if (idea && idea.stage !== "hosted") await db.doc("ideas/" + idea_id).update({ stage: "hosted", hosted_url: url, updated_at: now,
+        history: [...list(idea.history), { at: now, by: "Michael", stage: "hosted", note: "Live at " + url }] });
+      e.target.reset(); $("siteLaunch").value = ymdLondon(new Date()); $("siteMsg").textContent = "Added.";
+    } catch { $("siteMsg").textContent = "Couldn't save. Try again."; }
+    btn.disabled = false;
+  });
+
+  // ---------- run now ----------
+  // Starts the "Idea Lab run (manual)" scheduled task through the viewer's Claude Code Remote connector.
+  const MANUAL_TRIGGER = "trig_01Hq9FoKrPRzwNPvgdxxSn9Y";
+  const RN_KEY = "ideaLab.firedAt";
+  let firedAt = 0, rnError = "";
+  try { firedAt = Number(localStorage.getItem(RN_KEY)) || 0; } catch {}
+  function activeRun() {
+    const r = runs[0];
+    return r && r.status === "running" && Date.now() - new Date(r.started_at).getTime() < 90 * 60000 ? r : null;
+  }
+  function renderRunNow() {
+    const btn = $("rnBtn"), msg = $("rnMsg");
+    $("runNow").hidden = !writable;
+    const r = activeRun();
+    const recent = firedAt && Date.now() - firedAt < 30 * 60000;
+    msg.classList.toggle("bad", !!rnError && !r && !recent);
+    if (r) { btn.disabled = true; msg.textContent = `A run is in progress (started ${fmtDate(r.started_at)}).`; }
+    else if (recent) { btn.disabled = true; msg.textContent = `Run started at ${fmtDate(new Date(firedAt).toISOString())}. It shows under Runs & logs once it gets going, and you'll get a push when it's done.`; }
+    else { btn.disabled = false; msg.textContent = rnError; }
+  }
+  $("rnBtn").addEventListener("click", async () => {
+    if (activeRun() || (firedAt && Date.now() - firedAt < 30 * 60000)) return;
+    rnError = ""; $("rnBtn").disabled = true; $("rnMsg").classList.remove("bad"); $("rnMsg").textContent = "Starting…";
+    try {
+      const mcp = await claude.use("mcp");
+      if (!mcp) throw { code: "unavailable" };
+      await mcp.callTool("Claude Code Remote", "fire_trigger", { trigger_id: MANUAL_TRIGGER });
+      firedAt = Date.now(); rnError = "";
+      try { localStorage.setItem(RN_KEY, String(firedAt)); } catch {}
+    } catch (ex) {
+      const code = ex?.code || "error";
+      rnError = code === "unavailable" ? "The button can't reach your connectors in this view. Open the page on claude.ai, or ask Claude to start the run."
+        : code === "server_not_connected" ? "The Claude Code Remote connector isn't available to this page. Ask Claude to start the run instead."
+        : /denied|consent|permission/i.test(code) ? "Permission wasn't given, so no run started."
+        : `Couldn't start the run (${code}${ex?.message ? ": " + ex.message : ""}). Try again, or ask Claude to start it.`;
+    }
+    renderRunNow();
+  });
+  setInterval(renderRunNow, 60000);
+
+  function renderAll() { renderStrip(); renderWaiting(); renderBoard(); renderDecided(); renderPipe(); renderRuns(); renderAgents(); renderPlaybook(); renderRunNow(); }
+
+  // ---------- actions ----------
+  document.addEventListener("click", async e => {
+    const cardEl = e.target.closest("[data-id]");
+    const id = cardEl?.dataset.id;
+    const openBtn = e.target.closest("[data-open]");
+    if (openBtn && id) { openPanels.set(id, { kind: openBtn.dataset.open, reasons: new Set(), text: "" }); renderAll(); return; }
+    const reasonBtn = e.target.closest("[data-reason]");
+    if (reasonBtn && id) { const p = openPanels.get(id); const r = reasonBtn.dataset.reason;
+      p.reasons.has(r) ? p.reasons.delete(r) : p.reasons.add(r); reasonBtn.setAttribute("aria-pressed", p.reasons.has(r)); return; }
+    const act = e.target.closest("[data-act]")?.dataset.act;
+    if (!act || !id) return;
+    if (act === "cancel") { openPanels.delete(id); renderAll(); return; }
+    if (act === "confirm") await decide(id, e.target.closest(".decide"));
+    if (act === "undo") await undo(id);
+  });
+  document.addEventListener("input", e => {
+    const f = e.target.dataset?.field; const id = e.target.closest(".decide")?.dataset.id;
+    if (f && id && openPanels.has(id)) openPanels.get(id)[f] = e.target.value;
+  });
+
+  async function decide(id, panel) {
+    const idea = ideas.find(i => i._id === id); const p = openPanels.get(id);
+    if (!idea || !p || !db) return;
+    const err = panel.querySelector("[data-err]");
+    const now = new Date().toISOString();
+    const stage = { select: "selected", park: "parked", reject: "rejected", host: "hosted", building: "building" }[p.kind];
+    if (p.kind === "host" && !safeUrl(p.url)) { err.textContent = "Add the live URL, starting with https://"; return; }
+    const patch = { stage, updated_at: now,
+      history: [...list(idea.history), { at: now, by: "Michael", stage, note: [...p.reasons, p.text].filter(Boolean).join(" · ") }] };
+    if (["select", "park", "reject"].includes(p.kind)) patch.decision = { status: stage, reasons: [...p.reasons], text: p.text || "", at: now };
+    if (p.kind === "host") patch.hosted_url = p.url;
+    panel.querySelectorAll("button").forEach(b => b.disabled = true);
+    try { await db.doc("ideas/" + id).update(patch); openPanels.delete(id); }
+    catch (ex) { err.textContent = "Couldn't save. " + (ex?.code === "invalid_argument" ? "You may not have edit access." : "Try again."); panel.querySelectorAll("button").forEach(b => b.disabled = false); }
+  }
+
+  async function undo(id) {
+    const idea = ideas.find(i => i._id === id); if (!idea || !db) return;
+    const now = new Date().toISOString();
+    try { await db.doc("ideas/" + id).update({ stage: "shortlisted", decision: null, updated_at: now,
+      history: [...list(idea.history), { at: now, by: "Michael", stage: "shortlisted", note: "Decision undone" }] }); }
+    catch { $("status").textContent = "Couldn't undo. Try again."; }
+  }
+
+  $("pbSave").addEventListener("click", async () => {
+    if (!db) return;
+    const text = $("pbText").value;
+    if (text === (playbook?.text || "")) { $("pbMsg").textContent = "No changes to save."; return; }
+    $("pbSave").disabled = true;
+    try { await db.doc("config/playbook").set({ text, version: (Number(playbook?.version) || 0) + 1, updated_at: new Date().toISOString(), updated_by: "Michael" }); }
+    catch { $("pbMsg").textContent = "Couldn't save. Try again."; }
+    $("pbSave").disabled = !writable;
+  });
+
+  // ---------- data ----------
+  async function start() {
+    renderAll();
+    db = await claude.use("db");
+    if (!db) { $("status").textContent = "The database isn't available in this view. Open the page on claude.ai while signed in."; return; }
+    const user = await claude.use("user");
+    try { const w = user && await user.can("data.write"); if (w === false) writable = false; } catch {}
+
+    let gotIdeas = false;
+    const timer = setTimeout(() => { if (!gotIdeas) $("status").textContent = "Still waiting for the database. It may be slow, or you may be offline."; }, 10000);
+
+    db.collection("ideas").onSnapshot(snap => {
+      ideas = snap.docs.map(d => ({ _id: d.id, ...d.data() }));
+      if (!snap.metadata.fromCache) { gotIdeas = true; clearTimeout(timer); }
+      $("status").textContent = `${ideas.length} ideas in the lab.` + (writable ? "" : " You can view but not change decisions.");
+      renderAll(); renderSites();
+    }, e => { clearTimeout(timer); $("status").textContent = "Couldn't load ideas (" + e.code + ")."; });
+
+    db.collection("runs").orderBy("started_at", "desc").limit(30).onSnapshot(snap => {
+      runs = snap.docs.map(d => ({ _id: d.id, ...d.data() })); renderAll();
+    }, () => {});
+
+    db.collection("sites").onSnapshot(snap => {
+      sites = snap.docs.map(d => ({ _id: d.id, ...d.data() })); renderSites();
+    }, () => { $("sites").innerHTML = `<div class="empty">Couldn't load sites.</div>`; });
+
+    db.doc("config/playbook").onSnapshot(snap => { playbook = snap.exists ? snap.data() : null; renderPlaybook(); }, () => {});
+    db.doc("config/schedule").onSnapshot(snap => { schedule = snap.exists ? snap.data() : null; renderStrip(); }, () => {});
+    db.doc("config/agents").onSnapshot(snap => { roster = snap.exists ? snap.data() : null; renderAgents(); }, () => {});
+  }
+  start();
+})();
+</script>
+</body>
+</html>

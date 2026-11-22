@@ -1,0 +1,66 @@
+# Fishtank: tests on every push and PR (against sample_data/), and a manual "Run workflow" button that
+# runs the pipeline with the Anthropic API backend on the private data repo and commits the result there.
+# Runs need two repo secrets: ANTHROPIC_API_KEY, and DATA_REPO_TOKEN (a fine-grained token with contents
+# read/write on the data repo). No schedule: add a cron under `on:` (e.g. "49 8 * * 1") for a weekly run.
+name: Fishtank
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      args:
+        description: "Arguments for `python -m idea_lab run` (e.g. --dry-run, --type maintenance, --only judge)"
+        default: "--dry-run"
+        required: false
+
+concurrency:
+  group: fishtank-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - run: pip install -e '.[all]'
+      - run: python -m unittest discover -s tests -v
+
+  run:
+    if: github.event_name == 'workflow_dispatch'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ github.repository_owner }}/fishtank-data
+          token: ${{ secrets.DATA_REPO_TOKEN }}
+          path: data
+      - run: pip install -e '.[all]'
+      - name: Run the pipeline
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          IDEA_LAB_BACKEND: api
+          IDEA_LAB_NTFY_TOPIC: ${{ secrets.IDEA_LAB_NTFY_TOPIC }}
+          RUN_ARGS: ${{ inputs.args }}
+        run: python -m idea_lab run $RUN_ARGS
+      - name: Commit changed data to the data repo
+        working-directory: data
+        run: |
+          git config user.name "fishtank-bot"
+          git config user.email "fishtank-bot@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || { git commit -m "Run $(date -u +%Y-%m-%d)" && git push; }

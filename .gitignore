@@ -1,0 +1,12 @@
+.venv/
+*.egg-info/
+__pycache__/
+*.pyc
+# LangGraph checkpoints (SQLite) and resume state
+.state/
+# generated viewer and digest
+out/
+# RDAP / URL-check / licence-page cache (re-creatable)
+data/cache/
+# Real data: a clone of the private data repo (see README). Use sample_data/ without it.
+data/

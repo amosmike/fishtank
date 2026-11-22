@@ -1,0 +1,18 @@
+{
+  "name": "Dawn Chorus Daily",
+  "url": "https://example.com/dawn-chorus",
+  "idea_id": "dawn-chorus",
+  "launched": "2026-11-09",
+  "status": "live",
+  "weeks": [
+    {
+      "week_start": "2026-11-09",
+      "visits": 140,
+      "quiet_avg": 12,
+      "referrer": "reddit.com",
+      "earnings": 0,
+      "note": "Sample week"
+    }
+  ],
+  "tasks": []
+}

@@ -1,0 +1,65 @@
+{
+  "title": "Recipe Scaler",
+  "pitch": "Scale a recipe to your tin size, in grams and cups.",
+  "kind": "calculator",
+  "lane": "week",
+  "stage": "revising",
+  "source": "scout",
+  "run_id": "run-20261108-0849",
+  "created_at": "2026-11-08T08:55:00Z",
+  "updated_at": "2026-11-08T08:55:00Z",
+  "search_phrase": "recipe scaler",
+  "signals": [
+    {
+      "text": "Forum post asking for a calculator like this (fictional sample)",
+      "url": "https://example.com/forum/recipe-scaler"
+    }
+  ],
+  "competitors": [
+    {
+      "name": "Rival calculator",
+      "url": "https://example.com/rival-recipe-scaler",
+      "note": "Fictional competitor",
+      "weakness": "Slow, ad-heavy on mobile, needs sign-up"
+    }
+  ],
+  "serp_note": "Small sites rank for the long tail (sample).",
+  "wedge": "Answer in one tap with no sign-up (sample).",
+  "gap_note": "Incumbents are weak on mobile (sample).",
+  "demand_evidence": "One direct request, two indirect signals (sample).",
+  "data_sources": "Open dataset at https://example.com/data/recipe-scaler (sample licence: OGL-style)",
+  "build_plan": "Static page plus a JSON file built by a script (sample).",
+  "traffic_plan": "Share loop plus two community posts (sample).",
+  "monetisation": "Display ads after traction.",
+  "risks": "Data freshness (sample).",
+  "famous_original": "none",
+  "angle": "c: free open datasets/APIs that could power a one-page tool",
+  "history": [
+    {
+      "at": "2026-11-08T08:55:00Z",
+      "by": "scout c",
+      "stage": "generated",
+      "note": ""
+    }
+  ],
+  "sample": true,
+  "rev_count": 1,
+  "critique": {
+    "at": "2026-11-08T08:55:00Z",
+    "verdict": "revise",
+    "kill_reason": "",
+    "fixes": [
+      "Lead with tin sizes"
+    ],
+    "wedge": "One tap (sample)"
+  },
+  "revisions": [
+    {
+      "v": 1,
+      "at": "2026-11-08T09:10:00Z",
+      "by": "reviser",
+      "change": "Tin-first",
+      "reason": "critic fix"
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "at": "2026-11-01T08:50:00Z",
+  "run_id": "run-20261101-0849",
+  "trends": [
+    {
+      "trend": "Sample trend",
+      "why_now": "Fictional",
+      "evidence_url": "https://example.com/trend",
+      "momentum": "rising",
+      "idea_seeds": [
+        "A sample seed"
+      ]
+    }
+  ]
+}

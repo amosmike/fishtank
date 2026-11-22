@@ -1,0 +1,14 @@
+{
+  "tz": "Europe/London",
+  "days": [
+    1
+  ],
+  "times": [
+    "08:49"
+  ],
+  "label": "Weekly: Monday 08:49 (sample)",
+  "slots": {
+    "08:49": "discovery"
+  },
+  "timebox_min": 40
+}

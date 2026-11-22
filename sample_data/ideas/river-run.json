@@ -1,0 +1,75 @@
+{
+  "title": "River Run",
+  "pitch": "Trace a river from source to sea in five guesses.",
+  "kind": "game",
+  "lane": "week",
+  "stage": "revising",
+  "source": "scout",
+  "run_id": "run-20261101-0849",
+  "created_at": "2026-11-01T08:55:00Z",
+  "updated_at": "2026-11-01T08:55:00Z",
+  "search_phrase": "river run",
+  "signals": [
+    {
+      "text": "Forum post asking for a game like this (fictional sample)",
+      "url": "https://example.com/forum/river-run"
+    }
+  ],
+  "competitors": [
+    {
+      "name": "Rival game",
+      "url": "https://example.com/rival-river-run",
+      "note": "Fictional competitor",
+      "weakness": "Slow, ad-heavy on mobile, needs sign-up"
+    }
+  ],
+  "serp_note": "Small sites rank for the long tail (sample).",
+  "wedge": "Answer in one tap with no sign-up (sample).",
+  "gap_note": "Incumbents are weak on mobile (sample).",
+  "demand_evidence": "One direct request, two indirect signals (sample).",
+  "data_sources": "Open dataset at https://example.com/data/river-run (sample licence: OGL-style)",
+  "build_plan": "Static page plus a JSON file built by a script (sample).",
+  "traffic_plan": "Share loop plus two community posts (sample).",
+  "monetisation": "Display ads after traction.",
+  "risks": "Data freshness (sample).",
+  "famous_original": "none",
+  "angle": "c: free open datasets/APIs that could power a one-page tool",
+  "history": [
+    {
+      "at": "2026-11-01T08:55:00Z",
+      "by": "scout c",
+      "stage": "generated",
+      "note": ""
+    }
+  ],
+  "sample": true,
+  "rev_count": 1,
+  "original_pitch": "Guess the river.",
+  "critique": {
+    "at": "2026-11-01T08:55:00Z",
+    "verdict": "revise",
+    "kill_reason": "",
+    "fixes": [
+      "Make the mechanic differ from outline-guessing"
+    ],
+    "wedge": "One tap (sample)"
+  },
+  "revisions": [
+    {
+      "v": 1,
+      "at": "2026-11-01T09:10:00Z",
+      "by": "reviser",
+      "change": "Trace instead of guess",
+      "reason": "critic fix"
+    }
+  ],
+  "critique2": {
+    "at": "2026-11-01T09:20:00Z",
+    "verdict": "revise",
+    "kill_reason": "",
+    "fixes": [
+      "Narrow to one region first"
+    ],
+    "wedge": "One tap (sample)"
+  }
+}
