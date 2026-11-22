@@ -5,7 +5,7 @@ Two backends, picked by config.BACKEND / IDEA_LAB_BACKEND:
   Claude Code's WebSearch/WebFetch tools; searches are counted from the stream and capped by the
   prompt plus --max-turns.
 - "api": the Anthropic API with the server-side web_search tool and `max_uses` (hard cap).
-  Needed for GitHub Actions. Reads ANTHROPIC_API_KEY.
+  Optional; reads ANTHROPIC_API_KEY. (CI uses the CLI with a `claude setup-token` token.)
 
 Every call records tokens and searches into the run's Budget, per node.
 """
@@ -144,7 +144,7 @@ def _cli_call(model: str, effort: str, system: str, user: str, schema: dict, sea
     # Each search plus its page fetches is a few turns; this is a ceiling, not a target.
     argv += ["--max-turns", str(max(4, searches * 3 + 4))]
     env = {**os.environ}
-    env.pop("ANTHROPIC_API_KEY", None)   # always the subscription login, like draft.mjs
+    env.pop("ANTHROPIC_API_KEY", None)   # always the subscription login
     env.pop("ANTHROPIC_AUTH_TOKEN", None)
     # A temp cwd so Claude Code doesn't pick up this repo's CLAUDE.md or settings.
     with tempfile.TemporaryDirectory(prefix="idea-lab-") as cwd:

@@ -1,7 +1,9 @@
 # Fishtank: tests on every push and PR (against sample_data/), and a manual "Run workflow" button that
-# runs the pipeline with the Anthropic API backend on the private data repo and commits the result there.
-# Runs need two repo secrets: ANTHROPIC_API_KEY, and DATA_REPO_TOKEN (a fine-grained token with contents
-# read/write on the data repo). No schedule: add a cron under `on:` (e.g. "49 8 * * 1") for a weekly run.
+# runs the pipeline through the Claude CLI on the owner's subscription, against the private data repo,
+# and commits the result there. Runs need two repo secrets:
+#   CLAUDE_CODE_OAUTH_TOKEN  from `claude setup-token` (long-lived, subscription; no API key involved)
+#   DATA_REPO_TOKEN          fine-grained token with contents read/write on the data repo
+# No schedule: add a cron under `on:` (e.g. "49 8 * * 1") for a weekly run.
 name: Fishtank
 
 on:
@@ -50,10 +52,11 @@ jobs:
           token: ${{ secrets.DATA_REPO_TOKEN }}
           path: data
       - run: pip install -e '.[all]'
+      - run: npm install -g @anthropic-ai/claude-code
       - name: Run the pipeline
         env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          IDEA_LAB_BACKEND: api
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          IDEA_LAB_BACKEND: cli
           IDEA_LAB_NTFY_TOPIC: ${{ secrets.IDEA_LAB_NTFY_TOPIC }}
           RUN_ARGS: ${{ inputs.args }}
         run: python -m idea_lab run $RUN_ARGS

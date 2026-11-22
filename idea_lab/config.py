@@ -19,7 +19,8 @@ PLAYBOOK_VERSION = "code-1"  # the prose playbook was v11; data/config/playbook.
 
 # Which backend runs the models:
 #   "cli": headless Claude Code (`claude -p`), on Michael's subscription, like tools/whatsitfor/draft.mjs.
-#   "api": the Anthropic API (needs ANTHROPIC_API_KEY); required on GitHub Actions.
+#   "api": the Anthropic API (needs ANTHROPIC_API_KEY). Optional: CI also uses "cli", via a
+#          long-lived subscription token from `claude setup-token` (CLAUDE_CODE_OAUTH_TOKEN).
 BACKEND = os.environ.get("IDEA_LAB_BACKEND", "cli")
 
 # Model per role. Cheap model for flags and rewrites, mid model for research, strongest for the judge.
