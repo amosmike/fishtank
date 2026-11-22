@@ -46,6 +46,12 @@ class Queues(unittest.TestCase):
     def test_owners_new_idea_goes_to_critic1(self):
         self.assertEqual(self.q["critic1"], ["mine-spreadsheet-golf"])
 
+    def test_revision_stamped_with_its_verdict_goes_to_critic2_not_the_reviser(self):
+        t = "2026-11-16T09:00:00Z"
+        d = {"stage": "revising", "critique": {"at": t, "verdict": "revise"}, "revisions": [{"at": t}]}
+        self.assertTrue(memory.needs_critic2(d))
+        self.assertFalse(memory.needs_revision(d))
+
     def test_parked_needing_a_better_angle_is_revived(self):
         self.assertEqual(self.q["revive_parked"], ["charity-shop-map"])
 
@@ -410,6 +416,12 @@ class FullRunWithSimulatedAgents(unittest.TestCase):
                             self.assertEqual(after[i]["stage"], d["stage"], i)
                 self.assertNotIn("validated", {after[i]["stage"] for i in VALIDATED})  # all judged
                 self.assertGreater(run["usage"]["total"]["calls"], 8)
+                # nothing gets stuck: every idea in "revising" is due exactly one of reviser / critic 2
+                stuck = [i for i, d in after.items() if d["stage"] == "revising"
+                         and memory.needs_revision(d) == memory.needs_critic2(d)]
+                self.assertEqual(stuck, [], engine)
+                if not run.get("stopped_reason"):  # and every revision made in the run was checked by a critic
+                    self.assertEqual([i for i, d in after.items() if memory.needs_critic2(d)], [], engine)
             finally:
                 shutil.rmtree(tmp)
 

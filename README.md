@@ -213,14 +213,16 @@ How I build and change this system:
 python -m idea_lab serve --open        # http://127.0.0.1:8765
 ```
 
-![The dashboard mid-run: pipeline nodes with per-node usage, ideas by stage, live log](docs/dashboard.png)
+![The dashboard mid-run: six pipeline phases, two running in parallel, and ideas by stage](docs/dashboard.png)
 
 A local dashboard to watch a run happen:
 
-- **Pipeline strip:** each node lights up as it runs, with its model tier, calls, tokens and searches.
+- **Pipeline:** six phases (prepare, find new ideas, critique & revise, check, rank, wrap up). Each shows
+  whether it's waiting, running, done or had nothing to do, with a dot per step. Phases that run in
+  parallel light up together.
 - **Budget meters:** fill against the run's caps.
-- **Board:** ideas move between stage columns as critics, revisers and the judge act on them.
-- **Live log:** streams beside the board.
+- **Ideas tab:** ideas move between stage columns as critics, revisers and the judge act on them.
+- **Log tab:** the live log, plus a per-step table of model, status, calls, tokens and searches.
 
 Click any idea for its scores, evidence and full history, and to pick, park or reject it.
 

@@ -47,33 +47,54 @@
   .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
   .note { color: var(--muted); font-size: 13px; }
 
-  /* pipeline */
-  .pipe { display: flex; gap: 0; align-items: center; overflow-x: auto; padding-bottom: 4px; }
-  .pcol { display: flex; flex-direction: column; gap: 6px; flex: 1 0 112px; min-width: 112px; }
-  .arrow { flex: 0 0 16px; text-align: center; color: var(--muted); font-size: 13px; }
-  .node { position: relative; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--sunk); }
-  .node.lane2 { border-style: dashed; }
-  .node .nm small { display: block; font-weight: 500; font-size: 11px; color: var(--muted); }
-  .node .nm { font-weight: 650; font-size: 13px; }
-  .node .md { font: 11px var(--mono); color: var(--muted); }
-  .node .mx { font: 11px var(--mono); color: var(--muted); margin-top: 4px; min-height: 15px; }
-  .node .st { position: absolute; top: 9px; right: 9px; width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
-  .node.off { opacity: .38; }
-  .node.running { border-color: var(--run); background: var(--run-soft); }
-  .node.running .st { background: var(--run); animation: pulse 1s infinite; }
-  .node.done .st { background: var(--go); }
-  .node.skipped .st, .node.stopped .st { background: var(--hold); }
-  .node.error .st { background: var(--stop); }
-  .node.idle { opacity: .6; }
-  .node.idle .st { background: transparent; border: 2px solid var(--muted); width: 9px; height: 9px; box-sizing: border-box; }
+  /* pipeline: six phases */
+  .phases { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 14px; }
+  @media (max-width: 1000px) { .phases { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+  @media (max-width: 560px) { .phases { grid-template-columns: minmax(0, 1fr); } }
+  .phase { position: relative; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; background: var(--sunk); }
+  .phase:not(:last-child)::after { content: "→"; position: absolute; right: -12px; top: 50%; transform: translateY(-50%);
+                                   color: var(--muted); font-size: 12px; }
+  @media (max-width: 1000px) { .phase::after { display: none; } }
+  .phase .n { font: 600 11px var(--mono); color: var(--muted); }
+  .phase h3 { margin: 1px 0 2px; font-size: 14px; }
+  .phase .sub { font-size: 11.5px; color: var(--muted); min-height: 2.6em; }
+  .phase .state { font-size: 12px; font-weight: 650; color: var(--muted); margin-top: 6px; }
+  .phase .steps { display: flex; flex-wrap: wrap; gap: 2px 10px; margin-top: 6px; font-size: 12px; color: var(--muted); }
+  .phase .mx { font: 11px var(--mono); color: var(--muted); margin-top: 4px; min-height: 14px; }
+  .phase.running { border-color: var(--run); background: var(--run-soft); }
+  .phase.running .state { color: var(--run); }
+  .phase.done .state { color: var(--go); }
+  .phase.skipped .state { color: var(--hold); }
+  .phase.error .state, .phase.stopped .state { color: var(--stop); }
+  .phase.off, .phase.idle { opacity: .55; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--line); margin-right: 4px; vertical-align: 0; }
+  .dot.running { background: var(--run); animation: pulse 1s infinite; }
+  .dot.done { background: var(--go); }
+  .dot.skipped { background: var(--hold); }
+  .dot.error, .dot.stopped { background: var(--stop); }
+  .dot.idle { background: transparent; box-shadow: inset 0 0 0 1.5px var(--muted); }
+  .dot.off { opacity: .35; }
   @keyframes pulse { 50% { opacity: .25; transform: scale(1.5); } }
-  .meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 12px; }
+  .meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 14px; }
   .meter .lbl { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
   .meter .bar { height: 6px; border-radius: 6px; background: var(--sunk); overflow: hidden; margin-top: 4px; }
   .meter .bar i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .4s; }
 
+  /* tabs */
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: -4px 0 14px; }
+  .tab { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 12px;
+         font-weight: 600; color: var(--muted); }
+  .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
+  .tab .count { font: 600 11px var(--mono); background: var(--sunk); border-radius: 99px; padding: 1px 7px; margin-left: 4px; }
+  .usage { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .usage th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); font-weight: 600; }
+  .usage th, .usage td { padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  .usage td.num, .usage th.num { text-align: right; font-family: var(--mono); font-size: 12px; }
+  .usage td small { color: var(--muted); }
+  .usage td:nth-child(2), .usage td:nth-child(3) { white-space: nowrap; }
+
   /* board + log */
-  .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+  .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 560px); gap: 20px; align-items: start; }
   @media (max-width: 1000px) { .grid2 { grid-template-columns: 1fr; } }
   .board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(190px, 1fr); gap: 10px; overflow-x: auto; padding-bottom: 6px; }
   .col { background: var(--sunk); border-radius: 10px; padding: 8px; min-height: 120px; }
@@ -145,25 +166,34 @@
 <main>
   <section class="panel" aria-labelledby="pipe-h">
     <h2 id="pipe-h">Pipeline <span id="runid" class="note"></span></h2>
-    <div class="pipe" id="pipe"></div>
+    <div class="phases" id="pipe"></div>
     <div class="meters" id="meters"></div>
     <p class="note" id="hint"></p>
   </section>
 
-  <div class="grid2">
-    <section class="panel" aria-labelledby="board-h">
-      <h2 id="board-h" style="display:flex;justify-content:space-between;align-items:center">
-        <span>Ideas by stage</span>
+  <section class="panel">
+    <div class="tabs" role="tablist">
+      <button type="button" class="tab" role="tab" id="tab-ideas" aria-controls="pane-ideas" aria-selected="true">Ideas</button>
+      <button type="button" class="tab" role="tab" id="tab-log" aria-controls="pane-log" aria-selected="false">Log <span class="count" id="logCount">0</span></button>
+    </div>
+    <div id="pane-ideas" role="tabpanel" aria-labelledby="tab-ideas">
+      <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
         <label class="tog"><input type="checkbox" id="onlyRun"> Only ideas this run touched</label>
-      </h2>
+      </div>
       <div class="board" id="board"></div>
-    </section>
-    <section class="panel" aria-labelledby="log-h">
-      <h2 id="log-h">Live log</h2>
-      <div class="log" id="log"></div>
-      <details style="margin-top:10px"><summary>Process output</summary><pre id="tail"></pre></details>
-    </section>
-  </div>
+    </div>
+    <div id="pane-log" role="tabpanel" aria-labelledby="tab-log" hidden>
+      <div class="grid2">
+        <div><h2>Live log</h2><div class="log" id="log"></div></div>
+        <div>
+          <h2>Steps</h2>
+          <table class="usage"><thead><tr><th>Step</th><th>Model</th><th>Status</th><th class="num">Calls</th>
+            <th class="num">Tokens</th><th class="num">Searches</th></tr></thead><tbody id="usage"></tbody></table>
+          <details style="margin-top:12px"><summary>Process output</summary><pre id="tail"></pre></details>
+        </div>
+      </div>
+    </div>
+  </section>
 </main>
 
 <dialog id="dlg"><div class="dlg" id="dlgBody"></div></dialog>
@@ -198,34 +228,60 @@
     return (model.match(/haiku|sonnet|opus|fable/) || ["llm"])[0];
   }
 
+  const PHASES = [
+    ["Prepare", "Load data, apply decisions, build the work queues", ["memory"]],
+    ["Find new ideas", "Trends, scouts and dedupe", ["trends", "scouts", "dedupe"]],
+    ["Critique & revise", "Starts on ideas already waiting, alongside step 2",
+      ["critic1_queued", "reviser_queued", "critic2_queued", "critic1", "reviser", "critic2"]],
+    ["Check", "Logistics and demand, side by side", ["logistics", "demand"]],
+    ["Rank", "Blind judge, then fact-check", ["judge", "factcheck"]],
+    ["Wrap up", "Counts, lessons and the digest", ["close"]],
+  ];
+  const STATE = {running: "Running", done: "Done", idle: "Nothing to do", skipped: "Skipped (budget)", error: "Error",
+                 stopped: "Stopped", off: "Not in this run", pending: "Waiting"};
+
+  function nodeStatus(st, n) {
+    const run = st.run || {}, step = (st.steps || {})[n] || n, plan = run.plan || Object.values(st.steps || {});
+    return ((run.nodes || {})[n] || {}).status || (plan.includes(step) ? "pending" : "off");
+  }
+  function merge(ss, active) {
+    if (ss.includes("running")) return "running";
+    if (ss.includes("stopped")) return "stopped";
+    if (ss.includes("error")) return "error";
+    if (ss.includes("pending")) return active && ss.some(s => ["done", "idle", "skipped"].includes(s)) ? "running" : "pending";
+    for (const s of ["done", "skipped", "idle"]) if (ss.includes(s)) return s;
+    return "off";
+  }
+  function usageOf(st, ns) {
+    const by = ((st.run || {}).usage || {}).by_node || {};
+    return ns.reduce((a, n) => { const u = by[n] || {}; a.calls += u.calls || 0; a.tok += u.budget_tokens ?? u.tokens ?? 0; a.srch += u.searches || 0; return a; },
+                     {calls: 0, tok: 0, srch: 0});
+  }
+
   function renderPipe(st) {
-    const run = st.run || {}, nodes = run.nodes || {}, by = (run.usage || {}).by_node || {};
-    if (!st.layout) {  // an older server: one column per step
-      st.layout = (st.order || []).map(n => [n]);
-      st.steps = Object.fromEntries((st.order || []).map(n => [n, n]));
-    }
-    const plan = run.plan || Object.values(st.steps);
-    const node = n => {
-      const step = st.steps[n], queued = n.endsWith("_queued");
-      const s = (nodes[n] || {}).status || (plan.includes(step) ? "" : "off");
-      const u = by[n];
-      const m = s === "idle" ? "nothing to do" : s === "skipped" ? "skipped: budget" : s === "off" && run._id ? "not in this run"
-              : u ? `${u.calls} call${u.calls === 1 ? "" : "s"} · ${fmt(u.budget_tokens ?? u.tokens)} tok${u.searches ? " · " + u.searches + " srch" : ""}` : "";
-      const md = step === "memory" ? "code + " + tier(st.models[n]) : step === "close" ? "code" : tier(st.models[n]);
-      const sub = queued ? "<small>already waiting</small>" : step === "scouts" ? "<small>new ideas</small>" : "";
-      return `<div class="node ${esc(s)} ${queued ? "lane2" : ""}" title="${esc(n)}: ${esc(s || "pending")}"><span class="st"></span>
-        <div class="nm">${LABEL[step]}${sub}</div><div class="md">${esc(md)}</div><div class="mx">${esc(m)}</div></div>`;
-    };
-    $("pipe").innerHTML = st.layout.map(col => `<div class="pcol">${col.map(node).join("")}</div>`).join(`<div class="arrow" aria-hidden="true">→</div>`);
-    const live = Object.values(nodes).filter(v => v.status === "running").length;
+    const run = st.run || {}, active = run.status === "running";
+    if (!st.layout) st.steps = Object.fromEntries((st.order || []).map(n => [n, n]));  // older server
+    const known = n => !st.layout || st.layout.flat().includes(n);
+    $("pipe").innerHTML = PHASES.map(([title, sub, ns], k) => {
+      ns = ns.filter(known);
+      const phase = merge(ns.map(n => nodeStatus(st, n)), active);
+      const steps = [...new Set(ns.map(n => st.steps[n] || n))].map(step => {
+        const s = merge(ns.filter(n => (st.steps[n] || n) === step).map(n => nodeStatus(st, n)), active);
+        return `<span title="${esc(STATE[s])}"><i class="dot ${s}"></i>${esc(LABEL[step])}</span>`;
+      }).join("");
+      const u = usageOf(st, ns);
+      const m = u.calls ? `${u.calls} call${u.calls === 1 ? "" : "s"} · ${fmt(u.tok)} tokens` : "";
+      return `<div class="phase ${phase}"><div class="n">${k + 1}</div><h3>${esc(title)}</h3><div class="sub">${esc(sub)}</div>
+        <div class="state">${STATE[phase]}</div><div class="steps">${steps}</div><div class="mx">${m}</div></div>`;
+    }).join("");
+    const live = Object.values(run.nodes || {}).filter(v => v.status === "running").length;
     const t = ((run.usage || {}).total) || {}, b = st.budget;
     const meter = (lbl, v, max, f) => `<div class="meter"><div class="lbl"><span>${lbl}</span><span>${f(v)} / ${f(max)}</span></div>
       <div class="bar"><i style="width:${Math.min(100, (v || 0) / max * 100).toFixed(1)}%"></i></div></div>`;
     $("meters").innerHTML = meter("Tokens (budgeted)", t.budget_tokens ?? 0, b.tokens, fmt) + meter("Web searches", t.searches || 0, b.searches, String) +
-      meter("Cost, API-equivalent", t.cost_usd || 0, b.usd, v => "$" + (v || 0).toFixed(2)) +
-      `<div class="meter"><div class="lbl"><span>Model calls</span><span>${t.calls || 0}</span></div></div>`;
+      meter("Cost, API-equivalent", t.cost_usd || 0, b.usd, v => "$" + (v || 0).toFixed(2));
     $("runid").textContent = run._id ? `· ${run._id} (${run.run_type || ""}${run.backend ? ", " + run.backend : ""})` : "";
-    $("hint").textContent = [live > 1 ? `${live} steps running in parallel (model calls share ${st.max_parallel} slots).` : "",
+    $("hint").textContent = [live > 1 ? `${live} steps running in parallel.` : "",
                              run.stopped_reason ? "Budget: " + run.stopped_reason : ""].filter(Boolean).join(" ");
   }
 
@@ -262,6 +318,16 @@
     $("log").innerHTML = log.length ? log.map(e => `<div><time>${time(e.t)}</time><span class="ag ${e.agent === "error" ? "error" : ""}">${esc(e.agent)}</span>${esc(e.msg)}</div>`).join("")
                                     : `<p class="note">No log yet. Start a run.</p>`;
     $("tail").textContent = st.runner.tail || "";
+    $("logCount").textContent = ((st.run || {}).log || []).length;
+    const order = st.layout ? PHASES.flatMap(p => p[2]).filter(n => st.layout.flat().includes(n)) : (st.order || []);
+    const by = ((st.run || {}).usage || {}).by_node || {};
+    $("usage").innerHTML = order.map(n => {
+      const step = (st.steps || {})[n] || n, u = by[n] || {}, s = nodeStatus(st, n);
+      const model = step === "close" ? "code" : step === "memory" ? "code + " + tier(st.models[n]) : tier(st.models[n]);
+      return `<tr><td>${esc(LABEL[step])}${n.endsWith("_queued") ? " <small>(waiting ideas)</small>" : ""}</td><td>${esc(model)}</td>
+        <td><i class="dot ${s}"></i>${esc(STATE[s])}</td><td class="num">${u.calls || ""}</td>
+        <td class="num">${u.calls ? fmt(u.budget_tokens ?? u.tokens) : ""}</td><td class="num">${u.searches || ""}</td></tr>`;
+    }).join("");
   }
 
   function renderControls(st) {
@@ -327,6 +393,18 @@
   });
   $("board").addEventListener("click", e => { const c = e.target.closest(".card"); if (c) openIdea(c.dataset.id); });
   $("board").addEventListener("keydown", e => { const c = e.target.closest(".card"); if (c && e.key === "Enter") openIdea(c.dataset.id); });
+
+  // ---- tabs ----
+  function showTab(name) {
+    for (const t of ["ideas", "log"]) {
+      $("tab-" + t).setAttribute("aria-selected", String(t === name));
+      $("pane-" + t).hidden = t !== name;
+    }
+    try { localStorage.setItem("fishtank:tab", name); } catch {}
+  }
+  $("tab-ideas").addEventListener("click", () => showTab("ideas"));
+  $("tab-log").addEventListener("click", () => showTab("log"));
+  try { if (localStorage.getItem("fishtank:tab") === "log") showTab("log"); } catch {}
 
   // ---- controls ----
   document.querySelectorAll("[data-ds]").forEach(b => b.addEventListener("click", () => {

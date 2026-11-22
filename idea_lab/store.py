@@ -17,7 +17,8 @@ from .rules import PROTECTED_STAGES, is_protected, parse_ts
 
 
 def now_iso() -> str:
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    """UTC with milliseconds: queues compare evidence and revision times, so seconds aren't fine enough."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
 def slugify(text: str) -> str:

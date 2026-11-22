@@ -43,11 +43,14 @@ def needs_revision(idea: dict) -> bool:
 
 
 def needs_critic2(idea: dict) -> bool:
-    """In "revising" with a revision that no critic has looked at yet."""
+    """In "revising" with a revision that no critic has looked at yet.
+
+    A tie counts as unchecked: the reviser only ever runs after the verdict it answers, so a
+    revision stamped at the same instant is the newer of the two."""
     if idea.get("stage") != "revising":
         return False
     rev, ver = last_revision_at(idea), last_verdict_at(idea)
-    return rev is not None and (ver is None or rev > ver)
+    return rev is not None and (ver is None or rev >= ver)
 
 
 def parked_revivable(idea: dict) -> bool:
