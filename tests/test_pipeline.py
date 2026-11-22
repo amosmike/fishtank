@@ -129,15 +129,33 @@ class StreamParse(unittest.TestCase):
             llm.parse_stream(out)
 
 
-class Routing(unittest.TestCase):
-    def test_budget_hit_skips_to_judge(self):
-        b = llm.Budget(max_tokens=100, max_searches=10, max_usd=0)
-        ctx = nodes.Ctx(Store(Path(tempfile.mkdtemp())), b, "r")
-        state = {"plan": graph.make_plan("discovery")}
-        self.assertEqual(graph.next_node(state, "scouts", ctx), "dedupe")
-        b.record("scouts", llm.Usage(input_tokens=200))
-        self.assertEqual(graph.next_node(state, "scouts", ctx), "judge")
-        self.assertEqual(graph.next_node(state, "judge", ctx), "close")
+class Graph(unittest.TestCase):
+    def preds(self, n):
+        return set(graph.DAG[n][1])
+
+    def ancestors(self, n):
+        out, todo = set(), list(graph.DAG[n][1])
+        while todo:
+            p = todo.pop()
+            if p not in out:
+                out.add(p)
+                todo += graph.DAG[p][1]
+        return out
+
+    def test_per_idea_order_is_critic1_reviser_critic2(self):
+        self.assertIn("critic1", self.ancestors("critic2"))
+        self.assertIn("reviser", self.ancestors("critic2"))
+        self.assertIn("critic1_queued", self.ancestors("critic2_queued"))
+
+    def test_queued_branch_is_independent_of_scouting(self):
+        for n in ("critic1_queued", "reviser_queued", "critic2_queued"):
+            self.assertFalse({"trends", "scouts", "dedupe"} & self.ancestors(n), n)
+
+    def test_joins(self):
+        self.assertEqual(self.preds("critic1"), {"dedupe", "critic2_queued"})  # dedupe sees the whole scout batch
+        self.assertEqual(self.preds("judge"), {"logistics", "demand"})          # judge scores everything on one scale
+        self.assertNotIn("demand", self.ancestors("logistics"))
+        self.assertNotIn("logistics", self.ancestors("demand"))
 
     def test_only_plan(self):
         self.assertEqual(graph.make_plan("discovery", ["judge"]), ["memory", "judge", "close"])
@@ -273,8 +291,14 @@ class FullRunWithSimulatedAgents(unittest.TestCase):
                 after = store.ideas()
                 run = store.run("demo-test")
                 self.assertEqual(run["status"], "done", engine)
-                self.assertEqual({n: v["status"] for n, v in run["nodes"].items()},
-                                 {n: "done" for n in graph.ORDER}, engine)
+                st = {n: v["status"] for n, v in run["nodes"].items()}
+                self.assertEqual(set(st), set(graph.TOPO), engine)
+                # every step ran, unless the budget was hit, which skips model steps but always ends with judge + close
+                self.assertEqual((st["memory"], st["judge"], st["close"]), ("done", "done", "done"), engine)
+                skipped = {n for n, s in st.items() if s == "skipped"}
+                self.assertTrue(set(st.values()) <= {"done", "skipped"}, st)
+                self.assertEqual(bool(skipped), bool(run.get("stopped_reason")), st)
+                self.assertEqual(set(run["usage"]["by_node"]) - set(graph.TOPO), set(), "usage recorded per graph node")
                 new = [i for i in after if i not in before]
                 self.assertTrue(new, "scouts should have added ideas")
                 for i, d in after.items():
@@ -291,6 +315,42 @@ class FullRunWithSimulatedAgents(unittest.TestCase):
                 self.assertGreater(run["usage"]["total"]["calls"], 8)
             finally:
                 shutil.rmtree(tmp)
+
+
+class BudgetAndConcurrency(unittest.TestCase):
+    def test_budget_hit_skips_every_model_step_before_the_judge(self):
+        from idea_lab import demo
+        tmp, store = temp_store()
+        try:
+            with mock.patch.object(config, "BACKEND", "demo"), mock.patch.object(demo, "DELAY", 0), \
+                    mock.patch.object(config, "OUT", tmp / "out"), mock.patch.object(config, "STATE", tmp / ".state"):
+                ctx = nodes.Ctx(store, llm.Budget(max_tokens=1, max_searches=999, max_usd=0), "tiny")
+                store.put("runs", "tiny", {"started_at": "2026-11-16T09:00:00Z", "status": "running", "log": []})
+                graph.run(ctx, {"run_id": "tiny", "run_type": "discovery", "plan": graph.make_plan("discovery"),
+                                "judge_scope": "validated", "done": []}, engine="langgraph")
+            st = {n: v["status"] for n, v in store.run("tiny")["nodes"].items()}
+            for n in ("trends", "scouts", "critic1_queued", "reviser_queued", "logistics", "demand", "factcheck"):
+                self.assertEqual(st[n], "skipped", n)
+            self.assertEqual((st["judge"], st["close"]), ("done", "done"))
+            self.assertEqual(store.run("tiny")["status"], "done")
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_parallel_updates_to_one_idea_are_not_lost(self):
+        import threading
+        tmp, store = temp_store()
+        try:
+            def work(k):
+                for j in range(20):
+                    store.update_idea("tide-ready", {f"f{k}": j}, by=f"t{k}", note=str(j))
+            ts = [threading.Thread(target=work, args=(k,)) for k in range(4)]
+            [t.start() for t in ts]
+            [t.join() for t in ts]
+            d = store.idea("tide-ready")
+            self.assertEqual([d[f"f{k}"] for k in range(4)], [19] * 4)
+            self.assertEqual(sum(1 for h in d["history"] if h["by"].startswith("t")), 80)
+        finally:
+            shutil.rmtree(tmp)
 
 
 class Evals(unittest.TestCase):

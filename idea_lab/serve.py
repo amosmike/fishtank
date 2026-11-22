@@ -27,7 +27,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import config, decisions
-from .nodes import ORDER
+from .graph import DAG, LAYOUT
 from .rules import is_protected, top_n
 from .steps import memory
 from .store import Store, parse_ts
@@ -142,7 +142,9 @@ def state(ds: str) -> dict:
     return {
         "dataset": ds, "available": True, "data_dir": str(root), "ideas": rows, "top6": top_n(ideas, 6),
         "queues": {k: len(v) for k, v in q.items() if k != "top6"}, "run": run_out, "runs": [r["_id"] for r in runs[-10:]],
-        "order": ORDER, "models": {n: (config.ROLE_MODEL.get(r) if r else None) for n, r in NODE_ROLE.items()},
+        "layout": LAYOUT, "steps": {n: s for n, (s, _) in DAG.items()},
+        "models": {n: (config.ROLE_MODEL.get(NODE_ROLE[s]) if NODE_ROLE[s] else None) for n, (s, _) in DAG.items()},
+        "max_parallel": config.MAX_PARALLEL,
         "budget": {"tokens": config.MAX_TOKENS_PER_RUN, "searches": config.MAX_SEARCHES_PER_RUN, "usd": config.MAX_USD_PER_RUN},
         "runner": RUNNER.status(),
     }

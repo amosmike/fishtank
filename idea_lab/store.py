@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 import re
+import threading
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
@@ -39,6 +40,18 @@ def dump(doc: dict) -> str:
 
 class ProtectedIdea(Exception):
     pass
+
+
+# One lock per document, shared by every Store in the process: parallel graph branches may update
+# the same idea (e.g. logistics and demand), and each update is a read-modify-write of one file.
+_LOCKS: dict[str, threading.RLock] = {}
+_LOCKS_GUARD = threading.Lock()
+
+
+def doc_lock(path: Path) -> threading.RLock:
+    key = str(path.resolve())
+    with _LOCKS_GUARD:
+        return _LOCKS.setdefault(key, threading.RLock())
 
 
 class Store:
@@ -90,6 +103,10 @@ class Store:
         return f"{base}-{n}"
 
     def create_idea(self, idea_id: str, doc: dict, by: str, note: str = "") -> dict:
+        with doc_lock(self.path("ideas", idea_id)):
+            return self._create_idea(idea_id, doc, by, note)
+
+    def _create_idea(self, idea_id: str, doc: dict, by: str, note: str) -> dict:
         if self.path("ideas", idea_id).exists():
             raise FileExistsError(idea_id)
         t = now_iso()
@@ -106,6 +123,10 @@ class Store:
         `allow_protected` is set by the one path the playbook allows (applying Michael's own
         decisions, and the parked-revival exception he approved).
         """
+        with doc_lock(self.path("ideas", idea_id)):
+            return self._update_idea(idea_id, patch, by, note, allow_protected)
+
+    def _update_idea(self, idea_id: str, patch: dict, by: str, note: str, allow_protected: bool) -> dict:
         doc = self.idea(idea_id)
         t = now_iso()
         if is_protected(doc) and not allow_protected:
@@ -140,6 +161,10 @@ class Store:
         return self.get("runs", run_id) or {}
 
     def update_run(self, run_id: str, patch: dict | None = None, log: Iterable[dict] = ()) -> dict:
+        with doc_lock(self.path("runs", run_id)):
+            return self._update_run(run_id, patch, log)
+
+    def _update_run(self, run_id: str, patch: dict | None, log: Iterable[dict]) -> dict:
         r = self.run(run_id)
         if patch:
             r.update(patch)

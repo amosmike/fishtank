@@ -47,17 +47,27 @@ judgement became a small, versioned prompt with a schema, and the orchestration 
 ```mermaid
 flowchart LR
     D[(data/<br/>JSON per idea)] --> M[memory<br/><i>code</i>]
-    M --> T[trends<br/><i>LLM + web</i>] --> S[scouts ×N<br/><i>LLM + web</i>] --> DD[dedupe<br/><i>code + cheap LLM</i>]
-    DD --> C1[critic<br/><i>LLM + web</i>] --> R[reviser<br/><i>cheap LLM</i>] --> C2[critic 2<br/><i>LLM + web</i>]
-    C2 --> L[logistics<br/><i>code checks + LLM</i>] --> DH[demand<br/><i>LLM + web</i>]
-    DH --> J[judge<br/><i>blind LLM, code scores</i>] --> F[fact-check<br/><i>LLM + web</i>] --> CL[close<br/><i>code</i>]
-    CL --> D
     H((owner decisions)) --> M
-    B{{budget hit}} -. skip to .-> J
+    subgraph scouting [new ideas]
+      T[trends<br/><i>LLM + web</i>] --> S[scouts ×N<br/><i>LLM + web, parallel</i>] --> DD[dedupe<br/><i>code + cheap LLM</i>]
+    end
+    subgraph waiting [already waiting]
+      QC1[critic 1] --> QR[reviser] --> QC2[critic 2]
+    end
+    M --> T
+    M --> QC1
+    DD --> C1[critic 1<br/><i>LLM + web</i>]
+    QC2 --> C1
+    C1 --> R[reviser<br/><i>cheap LLM</i>] --> C2[critic 2<br/><i>LLM + web</i>]
+    C2 --> L[logistics<br/><i>code checks + LLM</i>]
+    C2 --> DH[demand<br/><i>LLM + web</i>]
+    L --> J[judge<br/><i>blind LLM, code scores</i>]
+    DH --> J
+    J --> F[fact-check<br/><i>LLM + web</i>] --> CL[close<br/><i>code</i>] --> D
 ```
 
-- **Orchestration:** LangGraph with a SQLite checkpointer. A plain-Python engine runs the same nodes
-  in the same order without LangGraph.
+- **Orchestration:** a LangGraph DAG with a SQLite checkpointer. Independent branches run concurrently;
+  a plain-Python engine runs the same nodes one at a time in topological order without LangGraph.
 - **Nodes:** each node is a function `(state, ctx) -> update`. It reads its own work queue from the
   data at the start, so re-running a node after a crash only handles what it hadn't finished.
 - **Models:** each role gets its own model and effort setting, chosen in a single config map:
@@ -120,6 +130,19 @@ from the viewer. Decisions also become the evaluation labels.
 - Usage is recorded per node in the run file.
 - Domain, URL and licence results are cached. Stable carry-over ideas are re-checked monthly, not
   weekly.
+
+**Parallel where the data allows it, not where it looks tidy.** The order inside one idea is fixed:
+critic 2 checks the reviser's answer to critic 1, so those can't overlap for the same idea. They can
+across ideas, though. Work that was already waiting when a run starts (my own submitted ideas, due
+revisions, revised-but-unchecked ideas) runs as its own branch while trends and scouts research.
+Scouts run concurrently but meet at dedupe, because dedupe has to see the whole batch to catch two
+scouts proposing the same thing and to apply the per-run caps. Logistics and demand are independent
+checks that write different fields, so they run side by side and join at the judge, which scores
+everything on one scale. Parallelism changes wall-clock time, not cost:
+
+- every model call in the process shares one bounded pool of slots, so extra branches can't trip a
+  rate limit;
+- every idea write takes a per-file lock, so two branches can't lose each other's updates.
 
 **Failure is a normal path.** Usage limits, rate limits and timeouts are typed errors. A limit stops
 the run cleanly with its state saved, and `run --resume <id>` continues from the last finished node.
@@ -234,7 +257,7 @@ python -m idea_lab eval --repeats 3 --folds 3           # judge eval; --list for
 python -m idea_lab apply                                # apply decisions and viewer change files
 ```
 
-Budgets, models per role, search caps and batch sizes all live in `idea_lab/config.py`. Most can
+Budgets, models per role, search caps, batch sizes and the number of concurrent model calls (`IDEA_LAB_PARALLEL`, default 3) all live in `idea_lab/config.py`. Most can
 also be set with flags or `IDEA_LAB_*` environment variables.
 
 ## Project layout

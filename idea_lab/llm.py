@@ -12,6 +12,7 @@ Every call records tokens and searches into the run's Budget, per node.
 """
 from __future__ import annotations
 
+import contextvars
 import json
 import os
 import subprocess
@@ -21,6 +22,15 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from . import config
+
+
+# The graph node currently running (set by graph._safe). Usage is recorded against it, so the two
+# critic-1 nodes (queued ideas and new ideas) report their own numbers.
+NODE: contextvars.ContextVar[str | None] = contextvars.ContextVar("idea_lab_node", default=None)
+
+# Every model call in the process shares this many slots, however many graph branches and batches
+# are running. Parallel branches make runs shorter; this keeps them from tripping rate limits.
+_SLOTS = threading.BoundedSemaphore(config.MAX_PARALLEL)
 
 
 class LimitError(Exception):
@@ -120,16 +130,19 @@ def call(role: str, payload: dict, schema: dict, *, node: str, budget: Budget,
     model = model or config.ROLE_MODEL[role]
     effort = config.ROLE_EFFORT.get(role, "medium")
     n = config.ROLE_SEARCHES.get(role, 0) if searches is None else searches
+    node = NODE.get() or node
     if config.BACKEND == "demo":
         from . import demo
-        data, usage = demo.respond(role, payload, model, n)
+        with _SLOTS:
+            data, usage = demo.respond(role, payload, model, n)
         budget.record(node, usage)
         return data
     system = load_prompt(prompt_role or role)
     user = (f"{search_note(n)}\n{extra}\n\nReturn ONLY the JSON object described by the output schema.\n\n"
             f"TASK INPUT (JSON):\n{json.dumps(payload, ensure_ascii=False, indent=1)}")
     backend = _cli_call if config.BACKEND == "cli" else _api_call
-    data, usage = backend(model, effort, system, user, schema, n)
+    with _SLOTS:
+        data, usage = backend(model, effort, system, user, schema, n)
     budget.record(node, usage)
     return data
 

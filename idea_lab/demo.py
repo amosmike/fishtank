@@ -59,7 +59,7 @@ def respond(role: str, payload: dict, model: str, searches: int) -> tuple[dict, 
     tin, tout = config.EST_TOKENS.get(role, (20_000, 2_000))
     f = rng.uniform(0.15, 0.35)  # demo calls are modest so a full run fits inside the budget
     pin, pout = config.PRICE_PER_MTOK.get(model, (0, 0))
-    s = rng.randint(max(0, searches // 3), searches) if searches else 0
+    s = rng.randint(1, max(1, searches // 2)) if searches else 0  # agents rarely use their whole search cap
     u = Usage(input_tokens=int(tin * f), output_tokens=int(tout * f), searches=s, calls=1)
     u.cost_usd = round(u.input_tokens / 1e6 * pin + u.output_tokens / 1e6 * pout + s * config.PRICE_PER_SEARCH, 4)
     return data, u

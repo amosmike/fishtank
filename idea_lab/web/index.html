@@ -41,15 +41,19 @@
   .pill.running { background: var(--run-soft); color: var(--run); }
   .pill.done { background: var(--go-soft); color: var(--go); }
   .pill.stopped, .pill.error { background: var(--stop-soft); color: var(--stop); }
-  main { padding: 16px 20px 40px; display: grid; gap: 16px; }
+  main { padding: 16px 20px 40px; display: grid; grid-template-columns: minmax(0, 1fr); gap: 16px; }
+  main > *, .grid2 > * { min-width: 0; }
   .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
   .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
   .note { color: var(--muted); font-size: 13px; }
 
   /* pipeline */
-  .pipe { display: flex; flex-wrap: wrap; gap: 6px; align-items: stretch; }
-  .node { position: relative; min-width: 104px; flex: 1 1 104px; border: 1px solid var(--line); border-radius: 10px;
-          padding: 8px 10px; background: var(--sunk); }
+  .pipe { display: flex; gap: 0; align-items: center; overflow-x: auto; padding-bottom: 4px; }
+  .pcol { display: flex; flex-direction: column; gap: 6px; flex: 1 0 112px; min-width: 112px; }
+  .arrow { flex: 0 0 16px; text-align: center; color: var(--muted); font-size: 13px; }
+  .node { position: relative; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; background: var(--sunk); }
+  .node.lane2 { border-style: dashed; }
+  .node .nm small { display: block; font-weight: 500; font-size: 11px; color: var(--muted); }
   .node .nm { font-weight: 650; font-size: 13px; }
   .node .md { font: 11px var(--mono); color: var(--muted); }
   .node .mx { font: 11px var(--mono); color: var(--muted); margin-top: 4px; min-height: 15px; }
@@ -193,15 +197,24 @@
   }
 
   function renderPipe(st) {
-    const run = st.run || {}, nodes = run.nodes || {}, plan = run.plan || st.order, by = (run.usage || {}).by_node || {};
-    $("pipe").innerHTML = st.order.map((n, i) => {
-      const s = (nodes[n] || {}).status || (plan.includes(n) ? "" : "off");
+    const run = st.run || {}, nodes = run.nodes || {}, by = (run.usage || {}).by_node || {};
+    if (!st.layout) {  // an older server: one column per step
+      st.layout = (st.order || []).map(n => [n]);
+      st.steps = Object.fromEntries((st.order || []).map(n => [n, n]));
+    }
+    const plan = run.plan || Object.values(st.steps);
+    const node = n => {
+      const step = st.steps[n], queued = n.endsWith("_queued");
+      const s = (nodes[n] || {}).status || (plan.includes(step) ? "" : "off");
       const u = by[n];
       const m = u ? `${u.calls} call${u.calls === 1 ? "" : "s"} · ${fmt(u.budget_tokens ?? u.tokens)} tok${u.searches ? " · " + u.searches + " srch" : ""}` : "";
-      const md = n === "memory" ? "code + " + tier(st.models[n]) : n === "close" ? "code" : tier(st.models[n]);
-      return `<div class="node ${esc(s)}" title="${esc(n)}: ${esc(s || "pending")}"><span class="st"></span>
-        <div class="nm">${i + 1}. ${LABEL[n]}</div><div class="md">${esc(md)}</div><div class="mx">${esc(m)}</div></div>`;
-    }).join("");
+      const md = step === "memory" ? "code + " + tier(st.models[n]) : step === "close" ? "code" : tier(st.models[n]);
+      const sub = queued ? "<small>already waiting</small>" : step === "scouts" ? "<small>new ideas</small>" : "";
+      return `<div class="node ${esc(s)} ${queued ? "lane2" : ""}" title="${esc(n)}: ${esc(s || "pending")}"><span class="st"></span>
+        <div class="nm">${LABEL[step]}${sub}</div><div class="md">${esc(md)}</div><div class="mx">${esc(m)}</div></div>`;
+    };
+    $("pipe").innerHTML = st.layout.map(col => `<div class="pcol">${col.map(node).join("")}</div>`).join(`<div class="arrow" aria-hidden="true">→</div>`);
+    const live = Object.values(nodes).filter(v => v.status === "running").length;
     const t = ((run.usage || {}).total) || {}, b = st.budget;
     const meter = (lbl, v, max, f) => `<div class="meter"><div class="lbl"><span>${lbl}</span><span>${f(v)} / ${f(max)}</span></div>
       <div class="bar"><i style="width:${Math.min(100, (v || 0) / max * 100).toFixed(1)}%"></i></div></div>`;
@@ -209,7 +222,8 @@
       meter("Cost, API-equivalent", t.cost_usd || 0, b.usd, v => "$" + (v || 0).toFixed(2)) +
       `<div class="meter"><div class="lbl"><span>Model calls</span><span>${t.calls || 0}</span></div></div>`;
     $("runid").textContent = run._id ? `· ${run._id} (${run.run_type || ""}${run.backend ? ", " + run.backend : ""})` : "";
-    $("hint").textContent = run.stopped_reason ? "Budget: " + run.stopped_reason : "";
+    $("hint").textContent = [live > 1 ? `${live} steps running in parallel (model calls share ${st.max_parallel} slots).` : "",
+                             run.stopped_reason ? "Budget: " + run.stopped_reason : ""].filter(Boolean).join(" ");
   }
 
   function card(i) {

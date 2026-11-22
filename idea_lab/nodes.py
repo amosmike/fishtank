@@ -3,6 +3,7 @@ so a node re-run after a crash only handles ideas it hasn't finished. Model call
 """
 from __future__ import annotations
 
+import contextvars
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -98,7 +99,8 @@ def parallel(ctx: Ctx, node: str, fn: Callable, items: list) -> list:
             return None
 
     with ThreadPoolExecutor(max_workers=config.MAX_PARALLEL) as ex:
-        futs = [ex.submit(wrap, x) for x in items]
+        # each worker runs in a copy of this thread's context, so usage is recorded against this node
+        futs = [ex.submit(contextvars.copy_context().run, wrap, x) for x in items]
         for f in futs:
             try:
                 results.append(f.result())
@@ -151,18 +153,14 @@ def skip_if_over_budget(ctx: Ctx, node: str) -> bool:
     if why:
         ctx.log("orchestrator", f"Skipping {node}: {why}")
         ctx.patch_run({"stopped_reason": why})
-        if node in NODE_NAMES:
-            ctx.node_status(node, "skipped")
+        if llm.NODE.get():
+            ctx.node_status(llm.NODE.get(), "skipped")
         return True
     return False
 
 
-NODE_NAMES = set(ORDER)
-
-
 # ---- nodes --------------------------------------------------------------------------------------
 def memory_node(state: dict, ctx: Ctx) -> dict:
-    ctx.patch_run({"phase": "memory"})
     for line in apply_decisions(ctx.store):
         ctx.log("decisions", line)
     classify_missing(ctx)
@@ -195,7 +193,6 @@ def classify_missing(ctx: Ctx) -> None:
 
 
 def trends_node(state: dict, ctx: Ctx) -> dict:
-    ctx.patch_run({"phase": "trends"})
     prev = ctx.store.config("trends") or {}
     if not stale(prev.get("at"), ctx.now(), config.TRENDS_MAX_AGE_DAYS):
         ctx.log("trends", f"Cache from {prev.get('at')} is fresh; reusing it")
@@ -213,7 +210,6 @@ def trends_node(state: dict, ctx: Ctx) -> dict:
 
 
 def scouts_node(state: dict, ctx: Ctx) -> dict:
-    ctx.patch_run({"phase": "scouts"})
     ideas = ctx.store.ideas()
     if memory.saturated(ideas):
         ctx.log("orchestrator", "Saturation guard: 8+ ideas revising, skipping scouts (maintenance)")
@@ -262,7 +258,6 @@ def scouts_node(state: dict, ctx: Ctx) -> dict:
 
 
 def dedupe_node(state: dict, ctx: Ctx) -> dict:
-    ctx.patch_run({"phase": "dedupe"})
     run = ctx.store.run(ctx.run_id)
     if run.get("dedupe_done") or not run.get("scout_output"):
         return {"done": ["dedupe"]}
@@ -353,7 +348,6 @@ def apply_critique(ctx: Ctx, iid: str, r: dict, round_no: int, fill_only: bool =
 
 
 def critic1_node(state: dict, ctx: Ctx) -> dict:
-    ctx.patch_run({"phase": "critic1"})
     if skip_if_over_budget(ctx, "critic1"):
         return {"done": ["critic1"]}
     ideas = ctx.store.ideas()
@@ -394,7 +388,6 @@ def _problem(d: dict) -> dict:
 
 
 def reviser_node(state: dict, ctx: Ctx) -> dict:
-    ctx.patch_run({"phase": "reviser"})
     if skip_if_over_budget(ctx, "reviser"):
         return {"done": ["reviser"]}
     ideas = ctx.store.ideas()
@@ -452,7 +445,6 @@ def reviser_node(state: dict, ctx: Ctx) -> dict:
 
 
 def critic2_node(state: dict, ctx: Ctx) -> dict:
-    ctx.patch_run({"phase": "critic2"})
     if skip_if_over_budget(ctx, "critic2"):
         return {"done": ["critic2"]}
     ideas = ctx.store.ideas()
@@ -493,7 +485,6 @@ def code_checks(d: dict, caches: dict) -> dict:
 
 
 def logistics_node(state: dict, ctx: Ctx) -> dict:
-    ctx.patch_run({"phase": "logistics"})
     if skip_if_over_budget(ctx, "logistics"):
         return {"done": ["logistics"]}
     ideas = ctx.store.ideas()
@@ -543,7 +534,6 @@ def logistics_node(state: dict, ctx: Ctx) -> dict:
 
 
 def demand_node(state: dict, ctx: Ctx) -> dict:
-    ctx.patch_run({"phase": "demand"})
     if skip_if_over_budget(ctx, "demand"):
         return {"done": ["demand"]}
     ideas = ctx.store.ideas()
@@ -579,7 +569,6 @@ def judge_targets(ideas: dict[str, dict], scope: str) -> list[str]:
 
 
 def judge_node(state: dict, ctx: Ctx) -> dict:
-    ctx.patch_run({"phase": "judge"})
     ideas = ctx.store.ideas()
     todo = [i for i in judge_targets(ideas, state.get("judge_scope", "changed")) if not is_protected(ideas[i])]
     if not todo:
@@ -642,7 +631,6 @@ def judge_node(state: dict, ctx: Ctx) -> dict:
 
 
 def factcheck_node(state: dict, ctx: Ctx) -> dict:
-    ctx.patch_run({"phase": "factcheck"})
     if skip_if_over_budget(ctx, "factcheck"):
         return {"done": ["factcheck"]}
     ideas = ctx.store.ideas()
@@ -676,7 +664,6 @@ def factcheck_node(state: dict, ctx: Ctx) -> dict:
 
 
 def close_node(state: dict, ctx: Ctx) -> dict:
-    ctx.patch_run({"phase": "close"})
     ideas = ctx.store.ideas()
     top6 = top_n(ideas, 6)
     before = state.get("top6_before") or []
