@@ -4,6 +4,7 @@ Two backends, picked by config.BACKEND / IDEA_LAB_BACKEND:
 - "cli": headless Claude Code (`claude -p`) on Michael's subscription (no API key). Web search is
   Claude Code's WebSearch/WebFetch tools; searches are counted from the stream and capped by the
   prompt plus --max-turns.
+- "demo": simulated agents (idea_lab/demo.py), no network, no tokens; for watching a run.
 - "api": the Anthropic API with the server-side web_search tool and `max_uses` (hard cap).
   Optional; reads ANTHROPIC_API_KEY. (CI uses the CLI with a `claude setup-token` token.)
 
@@ -119,6 +120,11 @@ def call(role: str, payload: dict, schema: dict, *, node: str, budget: Budget,
     model = model or config.ROLE_MODEL[role]
     effort = config.ROLE_EFFORT.get(role, "medium")
     n = config.ROLE_SEARCHES.get(role, 0) if searches is None else searches
+    if config.BACKEND == "demo":
+        from . import demo
+        data, usage = demo.respond(role, payload, model, n)
+        budget.record(node, usage)
+        return data
     system = load_prompt(prompt_role or role)
     user = (f"{search_note(n)}\n{extra}\n\nReturn ONLY the JSON object described by the output schema.\n\n"
             f"TASK INPUT (JSON):\n{json.dumps(payload, ensure_ascii=False, indent=1)}")

@@ -142,8 +142,33 @@ def apply_fact_check(scores: dict, changes: dict | None) -> tuple[dict, list[str
 MAX_REVISIONS = 2
 
 
+def _revived(idea: dict) -> bool:
+    """A parked idea on its one approved revival. If the revival fails it goes back to parked."""
+    return bool(idea.get("revived_from_parked")) and (idea.get("decision") or {}).get("status") == "parked"
+
+
+def _unless_revived(idea: dict, stage: str, note: str) -> tuple[str, str]:
+    if stage == "killed" and _revived(idea):
+        return "parked", f"Revival didn't work, back to parked: {note}"
+    return stage, note
+
+
+def kill(idea: dict, note: str) -> tuple[str, str]:
+    """The one way any step kills an idea: (stage, stage_note). A revived parked idea goes back to parked."""
+    return _unless_revived(idea, "killed", note)
+
+
+def can_pivot(idea: dict) -> bool:
+    """A pivot kills the original and starts a new idea; not allowed for the owner's ideas or a parked revival."""
+    return not is_michaels(idea) and not _revived(idea)
+
+
 def critic_outcome(idea: dict, verdict: str, kill_reason: str = "", kill_category: str = "",
                    round_no: int = 1) -> tuple[str, str]:
+    return _unless_revived(idea, *_critic_outcome(idea, verdict, kill_reason, kill_category, round_no))
+
+
+def _critic_outcome(idea: dict, verdict: str, kill_reason: str, kill_category: str, round_no: int) -> tuple[str, str]:
     """Map a critic verdict to (new stage, stage_note), applying Michael's rules and the cap.
 
     - Michael's ideas are never killed on the first pass except for policy/legal problems.
@@ -164,6 +189,12 @@ def critic_outcome(idea: dict, verdict: str, kill_reason: str = "", kill_categor
 
 def logistics_outcome(idea: dict, verdict: str, blockers: list[str], legal: bool,
                       no_workaround: bool) -> tuple[str | None, str]:
+    stage, note = _logistics_outcome(idea, verdict, blockers, legal, no_workaround)
+    return _unless_revived(idea, stage, note) if stage else (stage, note)
+
+
+def _logistics_outcome(idea: dict, verdict: str, blockers: list[str], legal: bool,
+                       no_workaround: bool) -> tuple[str | None, str]:
     """Map a logistics verdict to (new stage or None for unchanged, note).
 
     "blocker" kills only when no workaround exists; otherwise it's a revision (which counts toward

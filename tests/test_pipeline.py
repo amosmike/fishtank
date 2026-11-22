@@ -255,6 +255,44 @@ class Resilience(unittest.TestCase):
             shutil.rmtree(tmp)
 
 
+class FullRunWithSimulatedAgents(unittest.TestCase):
+    """Every node, end to end, with the demo backend (schema-shaped random answers, no network)."""
+
+    def test_full_discovery_run(self):
+        from idea_lab import demo
+        for engine in ("langgraph", "plain"):
+            tmp, store = temp_store()
+            try:
+                with mock.patch.object(config, "BACKEND", "demo"), mock.patch.object(demo, "DELAY", 0), \
+                        mock.patch.object(config, "OUT", tmp / "out"), mock.patch.object(config, "STATE", tmp / ".state"):
+                    before = store.ideas()
+                    ctx = nodes.Ctx(store, llm.Budget(), "demo-test")
+                    store.put("runs", "demo-test", {"started_at": "2026-11-16T09:00:00Z", "status": "running", "log": []})
+                    graph.run(ctx, {"run_id": "demo-test", "run_type": "discovery", "plan": graph.make_plan("discovery"),
+                                    "judge_scope": "changed", "done": []}, engine=engine)
+                after = store.ideas()
+                run = store.run("demo-test")
+                self.assertEqual(run["status"], "done", engine)
+                self.assertEqual({n: v["status"] for n, v in run["nodes"].items()},
+                                 {n: "done" for n in graph.ORDER}, engine)
+                new = [i for i in after if i not in before]
+                self.assertTrue(new, "scouts should have added ideas")
+                for i, d in after.items():
+                    self.assertIn(d["stage"], rules.STAGES, i)
+                    if d.get("scores") and d.get("total") is not None:
+                        self.assertEqual(d["total"], rules.total(d["scores"]), i)
+                for i, d in before.items():
+                    if rules.is_protected(d):
+                        if after[i].get("revived_from_parked"):  # the one approved exception: one revival
+                            self.assertIn(after[i]["stage"], ("parked", "revising", "validated", "judged", "shortlisted"), i)
+                        else:
+                            self.assertEqual(after[i]["stage"], d["stage"], i)
+                self.assertNotIn("validated", {after[i]["stage"] for i in VALIDATED})  # all judged
+                self.assertGreater(run["usage"]["total"]["calls"], 8)
+            finally:
+                shutil.rmtree(tmp)
+
+
 class Evals(unittest.TestCase):
     def test_pairwise_accuracy(self):
         labels = {"a": 2, "b": 2, "c": 0, "d": 0, "e": 1}

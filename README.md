@@ -19,6 +19,7 @@ idea, and those calls feed back into the next run.
 - [Design decisions](#design-decisions)
 - [Evaluation](#evaluation)
 - [Workflow](#workflow)
+- [Watch it run](#watch-it-run)
 - [Quick start](#quick-start)
 - [Project layout](#project-layout)
 - [Roadmap](#roadmap)
@@ -134,6 +135,7 @@ There are two layers.
 - the dice no-repeat rules;
 - decision handling, including that a decision is applied exactly once;
 - budget routing, and resume after a simulated usage limit;
+- a full discovery run through every node, using simulated agents with random answers;
 - full judge and fact-check passes against a fake model, which also asserts the judge never
   receives a field that would break blindness.
 
@@ -180,6 +182,28 @@ How I build and change this system:
    Git history is the audit log for every idea.
 7. **Decisions close the loop.** What I pick and reject becomes context for the next run and labels
    for the next eval.
+
+## Watch it run
+
+```sh
+python -m idea_lab serve --open        # http://127.0.0.1:8765
+```
+
+![The dashboard mid-run: pipeline nodes with per-node usage, ideas by stage, live log](docs/dashboard.png)
+
+A local dashboard to watch a run happen:
+
+- **Pipeline strip:** each node lights up as it runs, with its model tier, calls, tokens and searches.
+- **Budget meters:** fill against the run's caps.
+- **Board:** ideas move between stage columns as critics, revisers and the judge act on them.
+- **Live log:** streams beside the board.
+
+Click any idea for its scores, evidence and full history, and to pick, park or reject it.
+
+**Demo mode** runs the real pipeline (queues, rules, caps, stage transitions, budgets, checkpoints) on a
+scratch copy of the sample data, with simulated agents that return schema-valid answers. It needs no
+keys and no network, and spends no tokens. **Real data** mode shows the dry-run estimate and asks before
+spending anything.
 
 ## Quick start
 
@@ -228,6 +252,8 @@ idea_lab/
   steps/            memory/queues, dedupe, close/digest (pure code)
   decisions.py      the only path that may change a decided idea
   store.py          JSON store with the protection guard
+  serve.py, web/    local dashboard: live pipeline, stage board, log, decisions
+  demo.py           simulated agents for demo runs and the end-to-end test
   view.py           static leaderboard UI with a decision export
 tests/              deterministic tests (fake model)
 sample_data/        fictional dataset for tests, CI and the quick start

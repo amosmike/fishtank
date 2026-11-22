@@ -19,4 +19,4 @@ all = ["fishtank[graph,api]"]
 packages = ["idea_lab", "idea_lab.steps", "idea_lab.checks"]
 
 [tool.setuptools.package-data]
-idea_lab = ["prompts/*.md"]
+idea_lab = ["prompts/*.md", "web/*"]

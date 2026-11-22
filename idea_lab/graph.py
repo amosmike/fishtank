@@ -21,12 +21,20 @@ def _safe(name: str, fn):
     """A model error inside a node is logged and the node is marked done, so one bad response
     can't sink a run. Limit errors still propagate: they stop the run so it can be resumed."""
     def run(state: dict, ctx: Ctx) -> dict:
+        ctx.node_status(name, "running")
         try:
-            return fn(state, ctx)
+            out = fn(state, ctx)
         except llm.ModelError as e:
             ctx.log("error", f"{name}: {e}")
             ctx.save_usage()
+            ctx.node_status(name, "error")
             return {"done": [name]}
+        except BaseException:
+            ctx.node_status(name, "stopped")
+            raise
+        ctx.save_usage()
+        ctx.node_status(name, "done")
+        return out
     return run
 
 

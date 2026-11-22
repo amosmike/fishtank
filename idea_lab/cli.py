@@ -205,6 +205,12 @@ def cmd_eval(a) -> int:
     return 0
 
 
+def cmd_serve(a) -> int:
+    from .serve import serve
+    serve(a.port, a.open)
+    return 0
+
+
 def cmd_view(a) -> int:
     from .view import build
     path = build(Store(), config.OUT)
@@ -230,7 +236,7 @@ def main(argv: list[str] | None = None) -> int:
                    help="validated: only newly validated ideas; changed: plus carry-overs with new evidence (default); all: everything")
     r.add_argument("--calibrate", action="store_true", help="re-score every carry-over (judge scope all)")
     r.add_argument("--engine", choices=["auto", "langgraph", "plain"], default="auto")
-    r.add_argument("--backend", choices=["cli", "api"], help="model backend (default from IDEA_LAB_BACKEND or cli)")
+    r.add_argument("--backend", choices=["cli", "api", "demo"], help="model backend (default from IDEA_LAB_BACKEND or cli; demo = simulated agents)")
     r.add_argument("--force", action="store_true", help="start even if another run started in the last 30 minutes")
     r.set_defaults(fn=cmd_run)
 
@@ -239,6 +245,11 @@ def main(argv: list[str] | None = None) -> int:
     s.set_defaults(fn=cmd_status)
     sub.add_parser("apply", help="apply decisions.yaml and viewer change files now").set_defaults(fn=cmd_apply)
     sub.add_parser("view", help="build out/index.html").set_defaults(fn=cmd_view)
+
+    sv = sub.add_parser("serve", help="local dashboard: watch runs move ideas through the pipeline")
+    sv.add_argument("--port", type=int, default=8765)
+    sv.add_argument("--open", action="store_true", help="open the browser")
+    sv.set_defaults(fn=cmd_serve)
 
     e = sub.add_parser("eval", help="judge eval against the owner's decisions (taste agreement + stability)")
     e.add_argument("--repeats", type=int, default=3, help="identical runs per idea, for stability (default 3)")
@@ -251,7 +262,7 @@ def main(argv: list[str] | None = None) -> int:
     e.set_defaults(fn=cmd_eval)
 
     a = p.parse_args(argv)
-    if not (config.DATA / "ideas").is_dir():
+    if a.cmd != "serve" and not (config.DATA / "ideas").is_dir():
         print(f"No data at {config.DATA}. Clone the data repo into data/, or try the sample data:\n"
               f"  IDEA_LAB_DATA=sample_data python -m idea_lab {a.cmd}", file=sys.stderr)
         return 2

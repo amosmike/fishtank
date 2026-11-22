@@ -13,4 +13,5 @@ Michael's idea factory for his websites: an agent pipeline that generates, criti
   - The judge is blind, and code computes totals and caps.
   - Fact-checks only lower scores.
   - Real URLs only.
+- `python -m idea_lab serve` is the local dashboard. Its demo mode uses `--backend demo` (simulated agents, `idea_lab/demo.py`) on `.state/demo-data`, a scratch copy of sample_data.
 - Tests: `.venv/bin/python -m unittest discover -s tests` (sample data, fake model, no network). Add a test for any new rule. The judge eval (`python -m idea_lab eval`) is the check for prompt or model changes to the judge.

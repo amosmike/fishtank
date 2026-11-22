@@ -83,6 +83,21 @@ class Revisions(unittest.TestCase):
         self.assertEqual(rules.critic_outcome(m, "kill", "trademark", "policy", 1)[0], "killed")
         self.assertEqual(rules.critic_outcome(m, "kill", "crowded", "incumbent", 2)[0], "killed")
 
+    def test_failed_parked_revival_goes_back_to_parked(self):
+        revived = {"revived_from_parked": True, "decision": {"status": "parked"}, "rev_count": 2}
+        self.assertEqual(rules.critic_outcome(revived, "kill", "no wedge", "no_wedge", 2)[0], "parked")
+        self.assertEqual(rules.critic_outcome(revived, "revise", round_no=2)[0], "parked")  # revision cap
+        self.assertEqual(rules.logistics_outcome(revived, "blocker", ["no licence"], False, True)[0], "parked")
+        self.assertEqual(rules.critic_outcome(revived, "live")[0], "validated")
+        # an idea whose parked decision was later undone is treated normally
+        self.assertEqual(rules.critic_outcome({"revived_from_parked": True, "decision": None}, "kill")[0], "killed")
+        # every other kill path (fact-check) uses the same rule, and revivals can't pivot away
+        self.assertEqual(rules.kill(revived, "competitor delivers the wedge")[0], "parked")
+        self.assertEqual(rules.kill({}, "x"), ("killed", "x"))
+        self.assertFalse(rules.can_pivot(revived))
+        self.assertFalse(rules.can_pivot({"source": "michael"}))
+        self.assertTrue(rules.can_pivot({"source": "scout"}))
+
     def test_logistics_blocker(self):
         self.assertEqual(rules.logistics_outcome({}, "go", [], False, False), (None, ""))
         self.assertEqual(rules.logistics_outcome({}, "blocker", ["no licence"], False, True)[0], "killed")

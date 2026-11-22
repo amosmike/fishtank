@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fishtank</title>
+<style>
+  :root {
+    --bg: #f4f5f7; --surface: #ffffff; --sunk: #eef0f3; --ink: #15181d; --muted: #5d6573; --line: #dde1e7;
+    --accent: #2457d6; --accent-soft: #e5ecfc;
+    --go: #17784a; --go-soft: #dcf2e6; --hold: #9a6300; --hold-soft: #fbefd5; --stop: #b3261e; --stop-soft: #fbe3e1;
+    --run: #7a3fd1; --run-soft: #efe6fc;
+    --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+    --body: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1216; --surface: #171b21; --sunk: #12161b; --ink: #e7eaee; --muted: #9aa3af; --line: #2a3039;
+      --accent: #7c9dff; --accent-soft: #1d2742;
+      --go: #4cc38a; --go-soft: #14301f; --hold: #e3b34c; --hold-soft: #33280f; --stop: #f08a80; --stop-soft: #3a1a18;
+      --run: #b58cff; --run-soft: #2a1d42;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--body); }
+  header { position: sticky; top: 0; z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line);
+           padding: 10px 20px; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
+  h1 { font-size: 17px; margin: 0; letter-spacing: -.01em; }
+  h1 small { color: var(--muted); font-weight: 500; margin-left: 6px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; background: transparent; }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: #fff; }
+  button, select { font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--line);
+                   border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+  button:disabled { opacity: .45; cursor: default; }
+  .spacer { flex: 1; }
+  .pill { font: 600 12px var(--body); padding: 3px 10px; border-radius: 99px; background: var(--sunk); color: var(--muted); }
+  .pill.running { background: var(--run-soft); color: var(--run); }
+  .pill.done { background: var(--go-soft); color: var(--go); }
+  .pill.stopped, .pill.error { background: var(--stop-soft); color: var(--stop); }
+  main { padding: 16px 20px 40px; display: grid; gap: 16px; }
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+  .note { color: var(--muted); font-size: 13px; }
+
+  /* pipeline */
+  .pipe { display: flex; flex-wrap: wrap; gap: 6px; align-items: stretch; }
+  .node { position: relative; min-width: 104px; flex: 1 1 104px; border: 1px solid var(--line); border-radius: 10px;
+          padding: 8px 10px; background: var(--sunk); }
+  .node .nm { font-weight: 650; font-size: 13px; }
+  .node .md { font: 11px var(--mono); color: var(--muted); }
+  .node .mx { font: 11px var(--mono); color: var(--muted); margin-top: 4px; min-height: 15px; }
+  .node .st { position: absolute; top: 9px; right: 9px; width: 9px; height: 9px; border-radius: 50%; background: var(--line); }
+  .node.off { opacity: .38; }
+  .node.running { border-color: var(--run); background: var(--run-soft); }
+  .node.running .st { background: var(--run); animation: pulse 1s infinite; }
+  .node.done .st { background: var(--go); }
+  .node.skipped .st, .node.stopped .st { background: var(--hold); }
+  .node.error .st { background: var(--stop); }
+  @keyframes pulse { 50% { opacity: .25; transform: scale(1.5); } }
+  .meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 12px; }
+  .meter .lbl { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
+  .meter .bar { height: 6px; border-radius: 6px; background: var(--sunk); overflow: hidden; margin-top: 4px; }
+  .meter .bar i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .4s; }
+
+  /* board + log */
+  .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 16px; align-items: start; }
+  @media (max-width: 1000px) { .grid2 { grid-template-columns: 1fr; } }
+  .board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(190px, 1fr); gap: 10px; overflow-x: auto; padding-bottom: 6px; }
+  .col { background: var(--sunk); border-radius: 10px; padding: 8px; min-height: 120px; }
+  .col h3 { font-size: 12px; margin: 2px 4px 8px; display: flex; justify-content: space-between; color: var(--muted); }
+  .col h3 b { color: var(--ink); }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; margin-bottom: 6px;
+          cursor: pointer; transition: border-color .3s, box-shadow .3s; }
+  .card:hover { border-color: var(--accent); }
+  .card .t { font-weight: 600; font-size: 13px; }
+  .card .s { font-size: 11.5px; color: var(--muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; display: -webkit-box;
+             -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .card.touched { border-left: 3px solid var(--run); }
+  .card.moved { box-shadow: 0 0 0 3px var(--run-soft); border-color: var(--run); }
+  .chips { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+  .chip { font: 600 10.5px var(--body); padding: 1px 6px; border-radius: 99px; background: var(--sunk); color: var(--muted); }
+  .chip.score { background: var(--accent-soft); color: var(--accent); }
+  .chip.mine { background: var(--hold-soft); color: var(--hold); }
+  .more { font-size: 12px; color: var(--muted); text-align: center; padding: 4px; }
+  .log { max-height: 640px; overflow: auto; font-size: 12.5px; }
+  .log div { padding: 6px 0; border-bottom: 1px solid var(--line); }
+  .log .ag { font: 600 11px var(--mono); color: var(--accent); margin-right: 6px; }
+  .log .ag.error { color: var(--stop); }
+  .log time { color: var(--muted); font: 11px var(--mono); float: right; }
+  pre { font: 12px/1.45 var(--mono); background: var(--sunk); border-radius: 8px; padding: 10px; overflow: auto; white-space: pre-wrap; margin: 8px 0 0; }
+  details summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  label.tog { font-size: 13px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
+
+  /* drawer */
+  dialog { border: 1px solid var(--line); border-radius: 14px; padding: 0; width: min(720px, 94vw); background: var(--surface); color: var(--ink); }
+  dialog::backdrop { background: rgba(0,0,0,.35); }
+  .dlg { padding: 18px 20px; max-height: 86vh; overflow: auto; }
+  .dlg h2 { margin: 0 0 4px; font-size: 19px; }
+  .scores { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 6px 14px; margin: 12px 0; }
+  .sc .lbl { font-size: 12px; color: var(--muted); display: flex; justify-content: space-between; }
+  .sc .bar { height: 5px; background: var(--sunk); border-radius: 5px; overflow: hidden; }
+  .sc .bar i { display: block; height: 100%; background: var(--accent); }
+  .tl { border-left: 2px solid var(--line); margin: 8px 0 0 6px; padding-left: 14px; }
+  .tl > div { position: relative; padding: 4px 0 8px; font-size: 13px; }
+  .tl > div::before { content: ""; position: absolute; left: -20px; top: 9px; width: 10px; height: 10px; border-radius: 50%;
+                    background: var(--surface); border: 2px solid var(--accent); }
+  .tl b { font-weight: 600; }
+  .tl .m { color: var(--muted); font: 11px var(--mono); }
+  .acts { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Fishtank <small>Idea Lab pipeline</small></h1>
+  <div class="seg" role="group" aria-label="Dataset">
+    <button type="button" data-ds="demo" aria-pressed="true">Demo (simulated agents)</button>
+    <button type="button" data-ds="real" aria-pressed="false">Real data</button>
+  </div>
+  <select id="plan" aria-label="Run plan">
+    <option value="full">Full discovery run</option>
+    <option value="maintenance">Maintenance run</option>
+    <option value="judge">Judge + fact-check only</option>
+  </select>
+  <select id="speed" aria-label="Demo speed">
+    <option value="1.5">Slow</option><option value="0.8" selected>Normal</option><option value="0.2">Fast</option>
+  </select>
+  <button type="button" id="dry">Dry run</button>
+  <button type="button" id="start" class="primary">Start run</button>
+  <button type="button" id="stop">Stop</button>
+  <button type="button" id="reset">Reset demo</button>
+  <span class="spacer"></span>
+  <span id="status" class="pill">idle</span>
+</header>
+
+<main>
+  <section class="panel" aria-labelledby="pipe-h">
+    <h2 id="pipe-h">Pipeline <span id="runid" class="note"></span></h2>
+    <div class="pipe" id="pipe"></div>
+    <div class="meters" id="meters"></div>
+    <p class="note" id="hint"></p>
+  </section>
+
+  <div class="grid2">
+    <section class="panel" aria-labelledby="board-h">
+      <h2 id="board-h" style="display:flex;justify-content:space-between;align-items:center">
+        <span>Ideas by stage</span>
+        <label class="tog"><input type="checkbox" id="onlyRun"> Only ideas this run touched</label>
+      </h2>
+      <div class="board" id="board"></div>
+    </section>
+    <section class="panel" aria-labelledby="log-h">
+      <h2 id="log-h">Live log</h2>
+      <div class="log" id="log"></div>
+      <details style="margin-top:10px"><summary>Process output</summary><pre id="tail"></pre></details>
+    </section>
+  </div>
+</main>
+
+<dialog id="dlg"><div class="dlg" id="dlgBody"></div></dialog>
+
+<script>
+(() => {
+  "use strict";
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  const fmt = n => n == null ? "–" : n >= 1e6 ? (n/1e6).toFixed(2)+"M" : n >= 1e3 ? Math.round(n/1e3)+"k" : String(n);
+  const time = iso => { const d = new Date(iso); return isNaN(d) ? "" : d.toLocaleTimeString("en-GB", {hour:"2-digit", minute:"2-digit", second:"2-digit"}); };
+  const post = (url, body) => fetch(url, {method: "POST", headers: {"Content-Type": "application/json", "X-Fishtank": "1"},
+                                          body: JSON.stringify(body)}).then(r => r.json());
+
+  const LABEL = {memory: "Memory", trends: "Trends", scouts: "Scouts", dedupe: "Dedupe", critic1: "Critic 1", reviser: "Reviser",
+                 critic2: "Critic 2", logistics: "Logistics", demand: "Demand", judge: "Judge", factcheck: "Fact-check", close: "Close"};
+  const COLS = [
+    ["submitted", "Owner's ideas", s => s === "submitted"],
+    ["generated", "Generated", s => s === "generated"],
+    ["revising", "Revising", s => s === "revising"],
+    ["validated", "Validated", s => s === "validated"],
+    ["shortlisted", "Shortlisted (top 6)", s => s === "shortlisted"],
+    ["judged", "Judged", s => s === "judged"],
+    ["killed", "Killed", s => s === "killed"],
+    ["decided", "Decided", s => ["selected", "parked", "rejected", "building", "hosted"].includes(s)],
+  ];
+  const CAP = 40;
+  let ds = "demo", last = null, prevStage = {}, moved = {}, busy = false;
+
+  function tier(model) {
+    if (!model) return "code";
+    return (model.match(/haiku|sonnet|opus|fable/) || ["llm"])[0];
+  }
+
+  function renderPipe(st) {
+    const run = st.run || {}, nodes = run.nodes || {}, plan = run.plan || st.order, by = (run.usage || {}).by_node || {};
+    $("pipe").innerHTML = st.order.map((n, i) => {
+      const s = (nodes[n] || {}).status || (plan.includes(n) ? "" : "off");
+      const u = by[n];
+      const m = u ? `${u.calls} call${u.calls === 1 ? "" : "s"} · ${fmt(u.budget_tokens ?? u.tokens)} tok${u.searches ? " · " + u.searches + " srch" : ""}` : "";
+      const md = n === "memory" ? "code + " + tier(st.models[n]) : n === "close" ? "code" : tier(st.models[n]);
+      return `<div class="node ${esc(s)}" title="${esc(n)}: ${esc(s || "pending")}"><span class="st"></span>
+        <div class="nm">${i + 1}. ${LABEL[n]}</div><div class="md">${esc(md)}</div><div class="mx">${esc(m)}</div></div>`;
+    }).join("");
+    const t = ((run.usage || {}).total) || {}, b = st.budget;
+    const meter = (lbl, v, max, f) => `<div class="meter"><div class="lbl"><span>${lbl}</span><span>${f(v)} / ${f(max)}</span></div>
+      <div class="bar"><i style="width:${Math.min(100, (v || 0) / max * 100).toFixed(1)}%"></i></div></div>`;
+    $("meters").innerHTML = meter("Tokens (budgeted)", t.budget_tokens ?? 0, b.tokens, fmt) + meter("Web searches", t.searches || 0, b.searches, String) +
+      meter("Cost, API-equivalent", t.cost_usd || 0, b.usd, v => "$" + (v || 0).toFixed(2)) +
+      `<div class="meter"><div class="lbl"><span>Model calls</span><span>${t.calls || 0}</span></div></div>`;
+    $("runid").textContent = run._id ? `· ${run._id} (${run.run_type || ""}${run.backend ? ", " + run.backend : ""})` : "";
+    $("hint").textContent = run.stopped_reason ? "Budget: " + run.stopped_reason : "";
+  }
+
+  function card(i) {
+    const cls = ["card", i.touched ? "touched" : "", moved[i.id] ? "moved" : ""].join(" ");
+    const chips = [i.total != null ? `<span class="chip score">${i.total}</span>` : "", i.source === "michael" ? `<span class="chip mine">owner</span>` : "",
+                   i.kind ? `<span class="chip">${esc(i.kind)}</span>` : "", i.lane === "big" ? `<span class="chip">big</span>` : "",
+                   i.rev_count ? `<span class="chip">rev ×${i.rev_count}</span>` : "",
+                   ["selected","parked","rejected","building","hosted"].includes(i.stage) ? `<span class="chip">${esc(i.stage)}</span>` : ""].join("");
+    return `<div class="${cls}" data-id="${esc(i.id)}" tabindex="0"><div class="t">${esc(i.title)}</div>
+      <div class="chips">${chips}</div><div class="s">${esc(i.last.by || "")}: ${esc(i.last.note || "")}</div></div>`;
+  }
+
+  function renderBoard(st) {
+    const only = $("onlyRun").checked;
+    let ideas = st.ideas.filter(i => !only || i.touched);
+    const now = Date.now();
+    for (const i of st.ideas) {
+      if (prevStage[i.id] && prevStage[i.id] !== i.stage) moved[i.id] = now;
+      prevStage[i.id] = i.stage;
+    }
+    for (const k in moved) if (now - moved[k] > 4000) delete moved[k];
+    $("board").innerHTML = COLS.map(([key, title, test]) => {
+      let col = ideas.filter(i => test(i.stage));
+      col.sort((a, b) => key === "shortlisted" || key === "judged" ? (b.total ?? -1) - (a.total ?? -1) || a.id.localeCompare(b.id)
+                                                                    : (b.updated_at || "").localeCompare(a.updated_at || ""));
+      const extra = col.length > CAP ? `<div class="more">+${col.length - CAP} older</div>` : "";
+      return `<div class="col"><h3><span>${title}</span><b>${col.length}</b></h3>${col.slice(0, CAP).map(card).join("")}${extra}</div>`;
+    }).join("");
+  }
+
+  function renderLog(st) {
+    const log = ((st.run || {}).log || []).slice().reverse();
+    $("log").innerHTML = log.length ? log.map(e => `<div><time>${time(e.t)}</time><span class="ag ${e.agent === "error" ? "error" : ""}">${esc(e.agent)}</span>${esc(e.msg)}</div>`).join("")
+                                    : `<p class="note">No log yet. Start a run.</p>`;
+    $("tail").textContent = st.runner.tail || "";
+  }
+
+  function renderControls(st) {
+    const r = st.runner, running = r.running && r.dataset === ds;
+    const runStatus = (st.run || {}).status;
+    const s = running ? "running" : r.running ? "running (other dataset)" : runStatus || "idle";
+    $("status").textContent = s; $("status").className = "pill " + (running ? "running" : runStatus || "");
+    $("start").disabled = r.running || !st.available; $("stop").disabled = !r.running;
+    $("dry").disabled = !st.available || r.running;
+    $("reset").hidden = ds !== "demo"; $("speed").hidden = ds !== "demo";
+    $("reset").disabled = r.running;
+    $("start").textContent = ds === "demo" ? "Start demo run" : "Start real run…";
+  }
+
+  async function poll() {
+    if (busy) return;
+    busy = true;
+    try {
+      const st = await fetch(`/api/state?ds=${ds}`).then(r => r.json());
+      last = st;
+      if (!st.available) {
+        $("pipe").innerHTML = `<p class="note">No real data found. Clone the private data repo into <code>data/</code>, or use the demo.</p>`;
+        $("board").innerHTML = ""; $("log").innerHTML = ""; $("meters").innerHTML = "";
+      } else { renderPipe(st); renderBoard(st); renderLog(st); }
+      renderControls(st);
+    } catch (e) { $("status").textContent = "server unreachable"; $("status").className = "pill error"; }
+    busy = false;
+  }
+
+  // ---- idea drawer ----
+  const W = [["demand",3],["audience",2],["gap",2],["build",2],["share",2],["ads",1],["fun",1]];
+  async function openIdea(id) {
+    const d = await fetch(`/api/idea?ds=${ds}&id=${encodeURIComponent(id)}`).then(r => r.json());
+    const s = d.scores || {};
+    const scores = d.scores ? `<div class="scores">${W.map(([k, w]) => `<div class="sc"><div class="lbl"><span>${k} ×${w}</span><b>${s[k] ?? "–"}/5</b></div>
+      <div class="bar"><i style="width:${(s[k] || 0) * 20}%"></i></div></div>`).join("")}</div>` : "";
+    const hist = (d.history || []).slice().reverse().map(h => `<div><b>${esc(h.stage || "")}</b> · ${esc(h.by || "")}<br>${esc(h.note || "")}
+      <div class="m">${esc(h.at || "")}</div></div>`).join("");
+    const canDecide = ["judged", "shortlisted", "validated"].includes(d.stage) && !(last && last.runner.running);
+    $("dlgBody").innerHTML = `<h2>${esc(d.title || id)}</h2>
+      <div class="chips"><span class="chip">${esc(d.stage)}</span>${d.total != null ? `<span class="chip score">${d.total}/100</span>` : ""}
+        ${d.kind ? `<span class="chip">${esc(d.kind)}</span>` : ""}${d.lane ? `<span class="chip">${esc(d.lane)}</span>` : ""}
+        ${d.source === "michael" ? `<span class="chip mine">owner's idea</span>` : ""}</div>
+      <p>${esc(d.pitch || "")}</p>
+      ${d.wedge ? `<p><b>Wedge:</b> ${esc(d.wedge)}</p>` : ""}
+      ${d.stage_note ? `<p><b>Stage note:</b> ${esc(d.stage_note)}</p>` : ""}
+      ${scores}${d.judge_notes ? `<p class="note">${esc(d.judge_notes)}</p>` : ""}
+      <h3 style="font-size:13px;margin:16px 0 0">History</h3><div class="tl">${hist}</div>
+      <div class="acts">${canDecide ? `<button data-dec="selected" class="primary">Pick it</button><button data-dec="parked">Park</button>
+        <button data-dec="rejected">Reject</button>` : ""}<span class="spacer"></span><button data-close>Close</button></div>`;
+    $("dlgBody").dataset.id = id;
+    $("dlg").showModal();
+  }
+  $("dlgBody").addEventListener("click", async e => {
+    if (e.target.dataset.close !== undefined) return $("dlg").close();
+    const st = e.target.dataset.dec;
+    if (!st) return;
+    const text = prompt(`Why ${st === "selected" ? "pick" : st === "parked" ? "park" : "reject"} it? (your words go into every agent's brief)`, "") ?? null;
+    if (text === null) return;
+    const r = await post("/api/decide", {ds, id: $("dlgBody").dataset.id, status: st, text});
+    if (r.error) alert(r.error);
+    $("dlg").close(); poll();
+  });
+  $("board").addEventListener("click", e => { const c = e.target.closest(".card"); if (c) openIdea(c.dataset.id); });
+  $("board").addEventListener("keydown", e => { const c = e.target.closest(".card"); if (c && e.key === "Enter") openIdea(c.dataset.id); });
+
+  // ---- controls ----
+  document.querySelectorAll("[data-ds]").forEach(b => b.addEventListener("click", () => {
+    ds = b.dataset.ds; prevStage = {}; moved = {};
+    document.querySelectorAll("[data-ds]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+    poll();
+  }));
+  $("onlyRun").addEventListener("change", () => last && renderBoard(last));
+  $("dry").addEventListener("click", async () => {
+    $("dry").disabled = true;
+    const r = await post("/api/dryrun", {ds, plan: $("plan").value});
+    $("dlgBody").innerHTML = `<h2>Dry run</h2><pre>${esc(r.output || r.error)}</pre><div class="acts"><span class="spacer"></span><button data-close>Close</button></div>`;
+    $("dlg").showModal(); $("dry").disabled = false;
+  });
+  $("start").addEventListener("click", async () => {
+    if (ds === "real") {
+      const r = await post("/api/dryrun", {ds, plan: $("plan").value});
+      if (!confirm("This runs real agents on your data and uses your Claude subscription.\n\n" + (r.output || "") + "\n\nStart the run?")) return;
+    }
+    const r = await post("/api/run", {ds, plan: $("plan").value, speed: Number($("speed").value)});
+    if (r.error) alert(r.error);
+    poll();
+  });
+  $("stop").addEventListener("click", () => post("/api/stop", {}).then(poll));
+  $("reset").addEventListener("click", async () => {
+    if (!confirm("Reset the demo data to the original sample?")) return;
+    const r = await post("/api/reset-demo", {}); if (r.error) alert(r.error);
+    prevStage = {}; moved = {}; poll();
+  });
+
+  poll();
+  setInterval(poll, 1000);
+})();
+</script>
+</body>
+</html>

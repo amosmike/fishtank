@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable
 
-from . import config, dice, llm, schemas
+from . import config, dice, llm, rules, schemas
 from .checks import Cache, licence_fetch, rdap, url_check
 from .decisions import apply_all as apply_decisions
 from .rules import (apply_fact_check, apply_famous_caps, apply_stability, critic_outcome, has_new_evidence,
@@ -65,6 +65,19 @@ class Ctx:
 
     def save_usage(self) -> None:
         self.patch_run({"usage": self.budget.to_dict()})
+
+    def node_status(self, name: str, status: str) -> None:
+        """Record a node's status in the run file (running, done, skipped, error, stopped) for the dashboard.
+        "skipped" set during a node sticks; "done" doesn't overwrite it."""
+        with self._lock:
+            r = self.store.run(self.run_id)
+            nodes = r.setdefault("nodes", {})
+            n = nodes.setdefault(name, {})
+            if status == "done" and n.get("status") == "skipped":
+                return
+            n["status"] = status
+            n["started_at" if status == "running" else "ended_at"] = now_iso()
+            self.store.put("runs", self.run_id, r)
 
 
 # ---- helpers ------------------------------------------------------------------------------------
@@ -138,8 +151,13 @@ def skip_if_over_budget(ctx: Ctx, node: str) -> bool:
     if why:
         ctx.log("orchestrator", f"Skipping {node}: {why}")
         ctx.patch_run({"stopped_reason": why})
+        if node in NODE_NAMES:
+            ctx.node_status(node, "skipped")
         return True
     return False
+
+
+NODE_NAMES = set(ORDER)
 
 
 # ---- nodes --------------------------------------------------------------------------------------
@@ -405,7 +423,7 @@ def reviser_node(state: dict, ctx: Ctx) -> dict:
             d = ctx.store.idea(i)
             reason = "; ".join(str(x) for x in (_problem(d).get("fixes") or []) if x)[:400]
             rev = {"at": now_iso(), "by": "reviser", "change": r.get("change", ""), "reason": reason}
-            if r.get("pivot") and not is_michaels(d):
+            if r.get("pivot") and rules.can_pivot(d):
                 nid = ctx.store.new_idea_id(r["title"])
                 ctx.store.create_idea(nid, {
                     "title": r["title"], "pitch": r["pitch"], "kind": r.get("kind") or d.get("kind"),
@@ -463,6 +481,8 @@ def critic2_node(state: dict, ctx: Ctx) -> dict:
 
 
 def code_checks(d: dict, caches: dict) -> dict:
+    if config.BACKEND == "demo":  # no network in demo runs
+        return {"domains": {"demo.uk": "not found (likely free)"}, "urls": {}, "broken_urls": [], "licence_pages": []}
     domains = rdap.check_name(d.get("title", ""), caches["rdap"])
     urls = url_check.urls_in({k: d.get(k) for k in ("signals", "competitors", "data_sources", "build_plan")}, limit=25)
     status = url_check.check_all(urls, caches["urls"])
@@ -644,10 +664,11 @@ def factcheck_node(state: dict, ctx: Ctx) -> dict:
                  "scores": s, "total": t,
                  "judge_notes": (d.get("judge_notes") or "") + f" Fact-check ({ctx.now():%-d %b}): {r.get('summary', '')}"}
         if r.get("missed_competitor_delivers_wedge"):
-            patch.update(stage="killed", stage_note="Fact-check: a competitor already delivers the wedge")
+            st, note = rules.kill(d, "Fact-check: a competitor already delivers the wedge")
+            patch.update(stage=st, stage_note=note)
         ctx.store.update_idea(i, patch, by="factcheck",
                               note=f"Fact-check {r.get('status')}" + (f": {d.get('total')} → {t}" if t != d.get("total") else ""))
-        ctx.bump({"fact_checked": 1, "killed": int(bool(r.get("missed_competitor_delivers_wedge")))},
+        ctx.bump({"fact_checked": 1, "killed": int(patch.get("stage") == "killed")},
                  "factcheck", {"in": 1, r.get("status", "passed"): 1})
     rerank(ctx)
     ctx.log("factcheck", f"Checked {', '.join(todo)}")
