@@ -24,6 +24,7 @@
     }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 var(--body); }
   header { position: sticky; top: 0; z-index: 5; background: var(--surface); border-bottom: 1px solid var(--line);
            padding: 10px 20px; display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; }
@@ -159,7 +160,7 @@
 <header>
   <h1>Fishtank <small>Idea Lab pipeline</small></h1>
   <div class="seg" role="group" aria-label="Dataset">
-    <button type="button" data-ds="demo" aria-pressed="true">Demo (simulated agents)</button>
+    <button type="button" data-ds="demo" aria-pressed="true">Demo</button>
     <button type="button" data-ds="real" aria-pressed="false">Real data</button>
   </div>
   <select id="plan" aria-label="Run plan">
@@ -180,6 +181,9 @@
 </header>
 
 <main>
+  <p class="panel" id="stale" hidden style="border-color:var(--stop);background:var(--stop-soft);color:var(--stop);margin:0">
+    This dashboard server is older than this page, so some controls (like step by step) won't work.
+    Stop it with Ctrl-C and run <code>python -m idea_lab serve --open</code> again.</p>
   <section class="panel" aria-labelledby="pipe-h">
     <h2 id="pipe-h">Pipeline <span id="runid" class="note"></span></h2>
     <div class="phases" id="pipe"></div>
@@ -310,6 +314,9 @@
       left = `<div class="k">Running</div><h4>Starting…</h4>${last}`;
     } else if (run.status === "done" && ended.length) {
       left = `<div class="k">Run complete</div><h4>${esc(run._id || "")}</h4><p>${esc(run.summary || "")}</p>${last}`;
+    } else if (ds !== "demo") {
+      $("guide").hidden = true;  // no explainer for real data; the box shows up during a run
+      return;
     } else {
       const mode = $("mode").value;
       left = `<div class="k">How it works</div><h4>${mode === "step" ? "Step through a run" : "Watch a run"}</h4>
@@ -317,6 +324,7 @@
                              : "Press <b>Start</b> and watch the phases light up. This box explains whatever is running."}</p>
         ${ds === "demo" ? `<p class="md">Demo: the agents are simulated (no network, no tokens). The queues, rules, scoring, caps and budgets are the real pipeline.</p>` : ""}`;
     }
+    $("guide").hidden = false;
     const html = `<div>${left}</div><div>${btn}</div>`;
     if (html !== renderGuide.html) { $("guide").innerHTML = html; renderGuide.html = html; }  // keep scroll position
   }
@@ -431,6 +439,7 @@
     try {
       const st = await fetch(`/api/state?ds=${ds}`).then(r => r.json());
       last = st;
+      $("stale").hidden = st.api >= 3;
       if (!st.available) {
         $("pipe").innerHTML = `<p class="note">No real data found. Clone the private data repo into <code>data/</code>, or use the demo.</p>`;
         $("board").innerHTML = ""; $("log").innerHTML = ""; $("meters").innerHTML = "";

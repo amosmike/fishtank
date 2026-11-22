@@ -34,6 +34,10 @@ from .steps import memory
 from .store import Store, parse_ts
 
 WEB = Path(__file__).resolve().parent / "web"
+# Bump when the page needs something new from the server. The page shows a "restart the dashboard"
+# banner when the server it talks to reports an older version.
+API_VERSION = 3
+PAGE: bytes = b""  # the page is read once at start-up, so it always matches this server's code
 DEMO_DIR = config.STATE / "demo-data"
 NODE_ROLE = {"memory": "classify", "trends": "trends", "scouts": "scout", "dedupe": "dedupe", "critic1": "critic1",
              "reviser": "reviser", "critic2": "critic2", "logistics": "logistics", "demand": "demand",
@@ -148,7 +152,7 @@ def state(ds: str) -> dict:
         "queues": {k: len(v) for k, v in q.items() if k != "top6"}, "run": run_out, "runs": [r["_id"] for r in runs[-10:]],
         "layout": LAYOUT, "steps": {n: s for n, (s, _) in DAG.items()},
         "models": {n: (config.ROLE_MODEL.get(NODE_ROLE[s]) if NODE_ROLE[s] else None) for n, (s, _) in DAG.items()},
-        "max_parallel": config.MAX_PARALLEL,
+        "max_parallel": config.MAX_PARALLEL, "api": API_VERSION,
         "budget": {"tokens": config.MAX_TOKENS_PER_RUN, "searches": config.MAX_SEARCHES_PER_RUN, "usd": config.MAX_USD_PER_RUN},
         "runner": RUNNER.status(),
     }
@@ -186,7 +190,7 @@ class Handler(BaseHTTPRequestHandler):
         qs = {k: v[0] for k, v in parse_qs(u.query).items()}
         ds = qs.get("ds", "demo")
         if u.path in ("/", "/index.html"):
-            return self._send(200, (WEB / "index.html").read_bytes(), "text/html; charset=utf-8")
+            return self._send(200, PAGE or (WEB / "index.html").read_bytes(), "text/html; charset=utf-8")
         if u.path == "/api/state":
             return self._json(state(ds))
         if u.path == "/api/idea":
@@ -266,6 +270,8 @@ def serve(port: int = 8765, open_browser: bool = False) -> int:
     import errno
     import webbrowser
 
+    global PAGE
+    PAGE = (WEB / "index.html").read_bytes()
     ensure_demo()
     url = f"http://127.0.0.1:{port}"
     try:
