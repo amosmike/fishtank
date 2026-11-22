@@ -17,9 +17,15 @@
 Parallelism changes the wall-clock time, not the cost: every model call in the process shares
 config.MAX_PARALLEL slots (llm._SLOTS), and every idea write takes a per-file lock (store.doc_lock).
 
-Plan and budget are applied inside each node rather than by routing, so the DAG is static: a node
-whose step isn't in the run's plan is marked "off", and once a budget is hit every model step before
-the judge marks itself "skipped" (the old timebox rule: always finish with a ranking).
+Plan, budget and empty queues are handled inside each node rather than by routing, so the DAG is
+static and every node always runs:
+- "off": the step isn't in the run's plan;
+- "skipped": a budget was hit, so every model step before the judge passes (the old timebox rule:
+  always finish with a ranking);
+- "idle": the step's queue was empty (e.g. the critic asked for no revisions, so the reviser and
+  critic 2 have nothing to do). It returns at once and makes no model call;
+- "done": it did work;
+- "error": some or all of its model calls failed (logged; whatever succeeded is saved).
 
 Engines:
 - "langgraph" (default when installed): StateGraph with a SQLite checkpointer, thread_id = run id.
@@ -32,6 +38,7 @@ import operator
 from typing import Annotated, TypedDict
 
 from . import config, llm
+from .nodes import MODEL_NODES
 from .nodes import NODES as STEPS
 from .nodes import ORDER, Ctx
 
@@ -83,6 +90,7 @@ def _node(name: str):
             ctx.node_status(name, "off")
             return {"done": [name]}
         token = llm.NODE.set(name)
+        calls_before, errors_before = ctx.budget.calls(name), ctx.errors.get(name, 0)
         ctx.patch_run({"phase": name})
         ctx.node_status(name, "running")
         try:
@@ -98,7 +106,10 @@ def _node(name: str):
         finally:
             llm.NODE.reset(token)
         ctx.save_usage()
-        ctx.node_status(name, "done")
+        # A model step whose queue was empty made no calls: show it as idle, not as work done.
+        failed = ctx.errors.get(name, 0) > errors_before  # some batches failed (logged), the rest saved
+        idle = step in MODEL_NODES and ctx.budget.calls(name) == calls_before
+        ctx.node_status(name, "error" if failed else "idle" if idle else "done")
         return {**out, "done": [name]}
 
     return run

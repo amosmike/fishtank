@@ -64,6 +64,8 @@
   .node.done .st { background: var(--go); }
   .node.skipped .st, .node.stopped .st { background: var(--hold); }
   .node.error .st { background: var(--stop); }
+  .node.idle { opacity: .6; }
+  .node.idle .st { background: transparent; border: 2px solid var(--muted); width: 9px; height: 9px; box-sizing: border-box; }
   @keyframes pulse { 50% { opacity: .25; transform: scale(1.5); } }
   .meters { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 12px; }
   .meter .lbl { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); }
@@ -207,7 +209,8 @@
       const step = st.steps[n], queued = n.endsWith("_queued");
       const s = (nodes[n] || {}).status || (plan.includes(step) ? "" : "off");
       const u = by[n];
-      const m = u ? `${u.calls} call${u.calls === 1 ? "" : "s"} · ${fmt(u.budget_tokens ?? u.tokens)} tok${u.searches ? " · " + u.searches + " srch" : ""}` : "";
+      const m = s === "idle" ? "nothing to do" : s === "skipped" ? "skipped: budget" : s === "off" && run._id ? "not in this run"
+              : u ? `${u.calls} call${u.calls === 1 ? "" : "s"} · ${fmt(u.budget_tokens ?? u.tokens)} tok${u.searches ? " · " + u.searches + " srch" : ""}` : "";
       const md = step === "memory" ? "code + " + tier(st.models[n]) : step === "close" ? "code" : tier(st.models[n]);
       const sub = queued ? "<small>already waiting</small>" : step === "scouts" ? "<small>new ideas</small>" : "";
       return `<div class="node ${esc(s)} ${queued ? "lane2" : ""}" title="${esc(n)}: ${esc(s || "pending")}"><span class="st"></span>

@@ -296,7 +296,7 @@ class FullRunWithSimulatedAgents(unittest.TestCase):
                 # every step ran, unless the budget was hit, which skips model steps but always ends with judge + close
                 self.assertEqual((st["memory"], st["judge"], st["close"]), ("done", "done", "done"), engine)
                 skipped = {n for n, s in st.items() if s == "skipped"}
-                self.assertTrue(set(st.values()) <= {"done", "skipped"}, st)
+                self.assertTrue(set(st.values()) <= {"done", "skipped", "idle"}, st)
                 self.assertEqual(bool(skipped), bool(run.get("stopped_reason")), st)
                 self.assertEqual(set(run["usage"]["by_node"]) - set(graph.TOPO), set(), "usage recorded per graph node")
                 new = [i for i in after if i not in before]
@@ -315,6 +315,54 @@ class FullRunWithSimulatedAgents(unittest.TestCase):
                 self.assertGreater(run["usage"]["total"]["calls"], 8)
             finally:
                 shutil.rmtree(tmp)
+
+
+class IdleSteps(unittest.TestCase):
+    def test_no_revisions_requested_means_reviser_and_critic2_make_no_calls(self):
+        tmp, store = temp_store()
+        for i in ("river-run", "recipe-scaler", "charity-shop-map"):  # nothing waiting for revision
+            store.path("ideas", i).unlink()
+        roles = []
+
+        def all_live(role, payload, schema, *, node, budget, **kw):
+            roles.append(role)
+            budget.record(llm.NODE.get() or node, llm.Usage(input_tokens=10, calls=1))
+            if role == "critic1":
+                return {"ideas": [{"id": i["id"], "verdict": "live", "kill_reason": "", "kill_category": "", "fixes": []}
+                                  for i in payload["ideas"]]}
+            return fake_call(role, payload, schema, node=node, budget=llm.Budget(), **kw)
+
+        try:
+            with mock.patch.object(llm, "call", all_live), mock.patch.object(config, "OUT", tmp / "out"):
+                ctx = nodes.Ctx(store, llm.Budget(), RUN)
+                graph.run(ctx, {"run_id": RUN, "run_type": "discovery", "done": [], "judge_scope": "validated",
+                                "plan": graph.make_plan("discovery", ["critic1", "reviser", "critic2"])}, engine="plain")
+            st = {n: v["status"] for n, v in store.run(RUN)["nodes"].items()}
+            self.assertEqual(st["critic1_queued"], "done")  # the owner's idea was critiqued: live
+            for n in ("reviser_queued", "critic2_queued", "critic1", "reviser", "critic2"):
+                self.assertEqual(st[n], "idle", n)
+            self.assertEqual(st["scouts"], "off")
+            self.assertNotIn("reviser", roles)
+            self.assertNotIn("critic2", roles)
+            self.assertEqual(store.idea("mine-spreadsheet-golf")["stage"], "validated")
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_failed_calls_show_as_error_not_idle(self):
+        tmp, store = temp_store()
+
+        def broken(role, payload, schema, *, node, budget, **kw):
+            if role == "critic1":
+                raise llm.ModelError("bad JSON (simulated)")
+            return fake_call(role, payload, schema, node=node, budget=budget, **kw)
+
+        try:
+            with mock.patch.object(llm, "call", broken), mock.patch.object(config, "OUT", tmp / "out"):
+                graph.run(nodes.Ctx(store, llm.Budget(), RUN), {"run_id": RUN, "run_type": "discovery", "done": [],
+                          "judge_scope": "validated", "plan": graph.make_plan("discovery", ["critic1"])}, engine="plain")
+            self.assertEqual(store.run(RUN)["nodes"]["critic1_queued"]["status"], "error")
+        finally:
+            shutil.rmtree(tmp)
 
 
 class BudgetAndConcurrency(unittest.TestCase):

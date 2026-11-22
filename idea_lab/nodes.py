@@ -39,11 +39,15 @@ class Ctx:
     budget: llm.Budget
     run_id: str
     _lock: threading.Lock = field(default_factory=threading.Lock)
+    errors: dict = field(default_factory=dict)  # graph node -> model errors logged while it ran
 
     def now(self) -> datetime:
         return datetime.now(timezone.utc)
 
     def log(self, agent: str, msg: str) -> None:
+        if agent == "error":
+            node = llm.NODE.get() or "?"
+            self.errors[node] = self.errors.get(node, 0) + 1
         with self._lock:
             self.store.update_run(self.run_id, log=[{"agent": agent, "msg": msg[:300]}])
         print(f"  [{agent}] {msg}", flush=True)
@@ -74,7 +78,7 @@ class Ctx:
             r = self.store.run(self.run_id)
             nodes = r.setdefault("nodes", {})
             n = nodes.setdefault(name, {})
-            if status == "done" and n.get("status") == "skipped":
+            if status in ("done", "idle") and n.get("status") == "skipped":
                 return
             n["status"] = status
             n["started_at" if status == "running" else "ended_at"] = now_iso()

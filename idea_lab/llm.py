@@ -82,6 +82,10 @@ class Budget:
             self.total.add(u)
             self.by_node.setdefault(node, Usage()).add(u)
 
+    def calls(self, node: str) -> int:
+        with self._lock:
+            return self.by_node[node].calls if node in self.by_node else 0
+
     def exceeded(self) -> str | None:
         if self.total.budget_tokens >= self.max_tokens:
             return f"token budget hit ({self.total.budget_tokens:,} >= {self.max_tokens:,})"
