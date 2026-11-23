@@ -57,14 +57,14 @@ def decide(store: Store, idea_id: str, status: str, reasons: list[str] | None = 
 
 
 def submit_idea(store: Store, title: str, pitch: str, kind: str = "game", notes: str = "",
-                idea_id: str | None = None, at: str | None = None) -> str:
+                idea_id: str | None = None, at: str | None = None, note: str = "Added (decisions)") -> str:
     idea_id = idea_id or "mine-" + slugify(title)
     if store.path("ideas", idea_id).exists():
         return f"{idea_id}: already exists, skipped"
     t = at or now_iso()
     store.create_idea(idea_id, {"title": title, "pitch": pitch, "kind": kind, "notes": notes,
                                 "source": "michael", "stage": "submitted", "created_at": t},
-                      by="Michael", note="Added (decisions)")
+                      by="Michael", note=note)
     return f"{idea_id}: submitted"
 
 

@@ -106,6 +106,12 @@
   .toolbar input[type=search] { font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--line);
                                 border-radius: 8px; padding: 6px 10px; width: min(320px, 100%); }
   .toolbar.off { display: none; }
+  .form label { display: block; font-size: 13px; font-weight: 600; margin: 12px 0 4px; }
+  .form label small { font-weight: 400; color: var(--muted); }
+  .form input, .form textarea, .form select { font: inherit; color: inherit; background: var(--surface); width: 100%;
+                                              border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .form textarea { resize: vertical; }
+  .form .err { color: var(--stop); font-size: 13px; min-height: 1.2em; margin: 8px 0 0; }
   .was { font-weight: 500; color: var(--muted); font-size: 12px; margin-left: 6px; }
   .upd { font: 11px var(--mono); color: var(--muted); margin-left: 6px; }
   .lrow { display: grid; grid-template-columns: 44px 64px minmax(0, 1fr) 230px; gap: 14px; align-items: center; text-align: left;
@@ -296,8 +302,10 @@
       </select>
       <label class="tog"><input type="checkbox" id="mine"> Owner's ideas</label>
       <label class="tog"><input type="checkbox" id="onlyRun"> Touched by the last run</label>
-      <span class="spacer"></span>
       <button type="button" id="clearFilters">Clear</button>
+      <span class="spacer"></span>
+      <span class="note" id="addMsg" role="status"></span>
+      <button type="button" id="addIdea" class="primary">+ Add your idea</button>
     </div>
     <div id="pane-ideas" role="tabpanel" aria-labelledby="tab-ideas">
       <div class="board" id="board"></div>
@@ -471,7 +479,8 @@
       <div class="bar"><i style="width:${Math.min(100, (v || 0) / max * 100).toFixed(1)}%"></i></div></div>`;
     $("meters").innerHTML = meter("Tokens (budgeted)", t.budget_tokens ?? 0, b.tokens, fmt) + meter("Web searches", t.searches || 0, b.searches, String) +
       meter("Cost, API-equivalent", t.cost_usd || 0, b.usd, v => "$" + (v || 0).toFixed(2));
-    $("runid").textContent = run._id ? `· ${run._id} (${run.run_type || ""}${run.backend ? ", " + run.backend : ""})` : "";
+    const kind = [run.run_type, run.backend].filter(Boolean).join(", ");
+    $("runid").textContent = run._id ? `· ${run._id}${kind ? ` (${kind})` : ""}` : "";
     $("hint").textContent = [live > 1 ? `${live} steps running in parallel.` : "",
                              run.stopped_reason ? "Budget: " + run.stopped_reason : ""].filter(Boolean).join(" ");
   }
@@ -819,6 +828,46 @@
   });
   $("board").addEventListener("click", e => { const c = e.target.closest(".card"); if (c) openIdea(c.dataset.id); });
   $("board").addEventListener("keydown", e => { const c = e.target.closest(".card"); if (c && e.key === "Enter") openIdea(c.dataset.id); });
+
+  // ---- add your own idea ----
+  function openAdd() {
+    $("dlg").classList.remove("wide");
+    $("dlgBody").dataset.view = "add";
+    $("dlgBody").innerHTML = `<form class="form" id="addForm" novalidate>
+      <h2>Add your idea</h2>
+      <p class="note" style="margin:0">It skips the scouts and goes to the critics first in the next run. Your notes go into every
+        agent's brief word for word; the judge never sees who proposed an idea, so yours are scored on the same terms.</p>
+      <label for="f-title">Title</label><input id="f-title" name="title" maxlength="80" required autocomplete="off">
+      <label for="f-pitch">Pitch <small>· one or two sentences: who it's for and what it does</small></label>
+      <textarea id="f-pitch" name="pitch" rows="3" maxlength="600" required></textarea>
+      <label for="f-kind">Kind</label>
+      <select id="f-kind" name="kind"><option value="game">Game</option><option value="tool">Tool</option>
+        <option value="reference">Reference</option><option value="calculator">Calculator</option></select>
+      <label for="f-notes">Your notes <small>· optional: why you like it, what you've seen, any constraints</small></label>
+      <textarea id="f-notes" name="notes" rows="4" maxlength="2000"></textarea>
+      <p class="err" id="f-err"></p>
+      <div class="acts"><button type="submit" class="primary">Add idea</button><span class="spacer"></span><button type="button" data-close>Cancel</button></div>
+    </form>`;
+    if (!$("dlg").open) $("dlg").showModal();
+    $("f-title").focus();
+  }
+  $("addIdea").addEventListener("click", openAdd);
+  $("dlgBody").addEventListener("input", e => { if (e.target.closest("#addForm") && $("f-err")) $("f-err").textContent = ""; });
+  $("dlgBody").addEventListener("submit", async e => {
+    if (e.target.id !== "addForm") return;
+    e.preventDefault();
+    const f = new FormData(e.target), body = Object.fromEntries(f.entries());
+    if (!String(body.title || "").trim() || !String(body.pitch || "").trim()) { $("f-err").textContent = "Add a title and a pitch."; return; }
+    const btn = e.target.querySelector("button[type=submit]"); btn.disabled = true;
+    const r = await post("/api/submit", {ds, ...body}).catch(() => ({error: "Couldn't reach the dashboard server."}));
+    if (r.error) { $("f-err").textContent = r.error; btn.disabled = false; return; }
+    $("dlg").close();
+    $("q").value = ""; $("kind").value = ""; $("onlyRun").checked = false; rerender();
+    showTab("ideas");
+    $("addMsg").textContent = `Added “${body.title.trim()}”. The next run critiques it first.`;
+    setTimeout(() => { $("addMsg").textContent = ""; }, 8000);
+    moved[r.id] = Date.now(); poll();
+  });
 
   // ---- tabs ----
   function showTab(name) {

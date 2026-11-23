@@ -307,6 +307,22 @@ class Handler(BaseHTTPRequestHandler):
                     return self._json({"error": "Stop the run first."}, 409)
                 ensure_demo(reset=True)
                 return self._json({"ok": True})
+            if path == "/api/submit":
+                root = data_dir(ds)
+                if root is None:
+                    return self._json({"error": "No data folder."}, 400)
+                title, pitch = str(body.get("title") or "").strip(), str(body.get("pitch") or "").strip()
+                kind, notes = str(body.get("kind") or "game"), str(body.get("notes") or "").strip()
+                if not title or not pitch:
+                    return self._json({"error": "A title and a pitch are needed."}, 400)
+                if len(title) > 80 or len(pitch) > 600 or len(notes) > 2000:
+                    return self._json({"error": "Too long: title up to 80 characters, pitch 600, notes 2,000."}, 400)
+                if kind not in ("game", "tool", "reference", "calculator"):
+                    return self._json({"error": "Unknown kind."}, 400)
+                msg = decisions.submit_idea(Store(root), title, pitch, kind, notes, note="Added from the dashboard")
+                if msg.endswith("skipped"):
+                    return self._json({"error": "You already have an idea with that title."}, 409)
+                return self._json({"ok": True, "id": msg.split(":")[0]})
             if path == "/api/decide":
                 if RUNNER.running():
                     return self._json({"error": "Wait for the run to finish before deciding."}, 409)

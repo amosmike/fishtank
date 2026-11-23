@@ -237,6 +237,10 @@ it touched. Every model call is traced in the run file, so this works for finish
 
 Click any idea for its scores, evidence and full history, and to pick, park or reject it.
 
+**+ Add your idea** saves one of my own ideas straight into the data. It skips the scouts and goes to
+the critics first in the next run; my notes go into every agent's brief, while the judge still scores
+it blind.
+
 **Demo mode** runs the real pipeline (queues, rules, caps, stage transitions, budgets, checkpoints) on a
 scratch copy of the sample data, with simulated agents that return schema-valid answers. It needs no
 keys and no network, and spends no tokens. **Real data** mode shows the dry-run estimate and asks before

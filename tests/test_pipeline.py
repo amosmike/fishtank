@@ -508,6 +508,42 @@ class PhaseDetails(unittest.TestCase):
             shutil.rmtree(tmp)
 
 
+class SubmitIdea(unittest.TestCase):
+    def test_add_your_idea_from_the_dashboard(self):
+        import http.client
+        import threading
+
+        from idea_lab import serve
+        tmp, store = temp_store()
+        httpd = serve.ThreadingHTTPServer(("127.0.0.1", 0), serve.Handler)
+        port = httpd.server_address[1]
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+
+        def post(body, header=True):
+            c = http.client.HTTPConnection("127.0.0.1", port, timeout=5)
+            h = {"Host": f"127.0.0.1:{port}", "Content-Type": "application/json", **({"X-Fishtank": "1"} if header else {})}
+            c.request("POST", "/api/submit", body=json.dumps(body), headers=h)
+            r = c.getresponse()
+            return r.status, json.loads(r.read() or b"{}")
+
+        try:
+            with mock.patch.object(serve, "data_dir", lambda ds: store.root):
+                ok = {"ds": "demo", "title": "Queue Sommelier", "pitch": "Rate the queue you're in.", "kind": "game", "notes": "my words"}
+                self.assertEqual(post(ok), (200, {"ok": True, "id": "mine-queue-sommelier"}))
+                d = store.idea("mine-queue-sommelier")
+                self.assertEqual((d["source"], d["stage"], d["notes"]), ("michael", "submitted", "my words"))
+                self.assertEqual(d["history"][-1]["note"], "Added from the dashboard")
+                self.assertIn("mine-queue-sommelier", memory.queues(store.ideas(), NOW)["critic1"])  # critiqued next run
+                self.assertEqual(post(ok)[0], 409)                                           # same title twice
+                self.assertEqual(post({**ok, "title": "x2", "pitch": ""})[0], 400)          # pitch required
+                self.assertEqual(post({**ok, "title": "x3", "kind": "spaceship"})[0], 400)  # unknown kind
+                self.assertEqual(post({**ok, "title": "x4"}, header=False)[0], 403)         # no X-Fishtank header
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
+            shutil.rmtree(tmp)
+
+
 class Renames(unittest.TestCase):
     def test_reviser_keeps_the_original_title_once(self):
         tmp, store = temp_store()
