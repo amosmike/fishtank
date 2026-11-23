@@ -177,7 +177,8 @@ def cmd_status(a) -> int:
     if runs:
         r = runs[-1]
         u = (r.get("usage") or {}).get("total") or {}
-        print(f"\nLast run {r['_id']}: {r.get('status')}" + (f" at {r.get('stopped_at_phase')}" if r.get("stopped_at_phase") else "")
+        stopped = r.get("status") in ("stopped", "failed") and r.get("stopped_at_phase")
+        print(f"\nLast run {r['_id']}: {r.get('status')}" + (f" at {r.get('stopped_at_phase')}" if stopped else "")
               + (f", {u.get('tokens', 0):,} tokens, {u.get('searches', 0)} searches" if u else ""))
     return 0
 
