@@ -139,6 +139,7 @@ def node_detail(store: Store, nodes: list[str]) -> dict:
     runs = store.runs()
     run = runs[-1] if runs else {}
     rn, by = run.get("nodes") or {}, (run.get("usage") or {}).get("by_node") or {}
+    trace = (run.get("usage") or {}).get("trace") or []
     ideas = store.ideas()
     out = []
     for n in nodes:
@@ -168,6 +169,7 @@ def node_detail(store: Store, nodes: list[str]) -> dict:
         out.append({"node": n, "step": step, "status": info.get("status") or "", "started_at": t0, "ended_at": t1,
                     "model": config.ROLE_MODEL.get(NODE_ROLE[step]) if NODE_ROLE.get(step) else None,
                     "usage": by.get(n) or {}, "log": log[-12:], "ideas": sorted(touched, key=lambda x: x["title"].lower()),
+                    "preds": DAG[n][1], "calls": [c for c in trace if c.get("node") == n],
                     **extra})
     return {"run": run.get("_id"), "nodes": out}
 
@@ -200,7 +202,7 @@ def state(ds: str) -> dict:
     return {
         "dataset": ds, "available": True, "data_dir": str(root), "ideas": rows, "top6": top_n(ideas, 6),
         "queues": {k: len(v) for k, v in q.items() if k != "top6"}, "run": run_out, "runs": [r["_id"] for r in runs[-10:]],
-        "layout": LAYOUT, "steps": {n: s for n, (s, _) in DAG.items()},
+        "layout": LAYOUT, "steps": {n: s for n, (s, _) in DAG.items()}, "dag": {n: p for n, (_, p) in DAG.items()},
         "models": {n: (config.ROLE_MODEL.get(NODE_ROLE[s]) if NODE_ROLE[s] else None) for n, (s, _) in DAG.items()},
         "max_parallel": config.MAX_PARALLEL, "api": API_VERSION,
         "budget": {"tokens": config.MAX_TOKENS_PER_RUN, "searches": config.MAX_SEARCHES_PER_RUN, "usd": config.MAX_USD_PER_RUN},

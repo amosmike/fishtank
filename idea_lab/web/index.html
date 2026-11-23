@@ -142,7 +142,34 @@
   label.tog { font-size: 13px; color: var(--muted); display: inline-flex; gap: 6px; align-items: center; }
 
   /* phase details */
-  dialog.wide { width: min(980px, 96vw); }
+  dialog.wide { width: min(1180px, 96vw); }
+  .graph { overflow-x: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--sunk); padding: 18px; }
+  .gcanvas { position: relative; margin: 0 auto; }
+  .gcanvas svg { position: absolute; inset: 0; overflow: visible; }
+  .gcanvas svg path { fill: none; stroke: var(--muted); stroke-width: 1.6; }
+  .gcanvas svg path.cross { stroke-dasharray: 5 4; }
+  .gcanvas svg marker path { fill: var(--muted); stroke: none; }
+  .lane { position: absolute; left: 0; font: 600 10.5px var(--body); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+  .gnode { position: absolute; background: var(--surface); border: 1.5px solid var(--line); border-left-width: 5px; border-radius: 8px;
+           padding: 7px 9px; font-size: 12.5px; cursor: pointer; overflow: hidden; display: flex; flex-direction: column; }
+  .gnode.ghost { cursor: default; border-style: dashed; border-left-width: 1.5px; color: var(--muted); background: transparent;
+                 font-size: 12px; align-items: center; justify-content: center; text-align: center; padding: 4px 8px; }
+  .gnode.done { border-color: var(--go); }
+  .gnode.running { border-color: var(--run); background: var(--run-soft); }
+  .gnode.waiting { border-color: var(--accent); border-style: dashed; }
+  .gnode.error, .gnode.stopped { border-color: var(--stop); }
+  .gnode.skipped { border-color: var(--hold); }
+  .gnode.idle, .gnode.off { opacity: .6; }
+  .gnode.sel { box-shadow: 0 0 0 3px var(--accent-soft), 0 0 0 1.5px var(--accent); }
+  .gnode .gh { display: flex; align-items: center; gap: 2px; }
+  .gnode .gm { font: 11px var(--mono); color: var(--muted); margin: 2px 0 6px; }
+  .tis { display: grid; gap: 3px; }
+  .ti { display: flex; justify-content: space-between; gap: 6px; font: 11px var(--mono); background: var(--sunk); border-radius: 4px;
+        padding: 2px 6px; border-left: 3px solid var(--go); white-space: nowrap; overflow: hidden; }
+  .ti span:first-child { overflow: hidden; text-overflow: ellipsis; }
+  .ti.error { border-left-color: var(--stop); }
+  .tis .more { font-size: 11px; text-align: left; padding: 2px 0; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); margin: 8px 2px 0; }
   .task { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-top: 12px; }
   .task h3 { margin: 0; font-size: 15px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .task .meta { font: 11.5px var(--mono); color: var(--muted); margin: 4px 0 8px; }
@@ -184,8 +211,8 @@
 <header>
   <h1>Fishtank <small>Idea Lab pipeline</small></h1>
   <div class="seg" role="group" aria-label="Dataset">
-    <button type="button" data-ds="demo" aria-pressed="true">Demo</button>
-    <button type="button" data-ds="real" aria-pressed="false">Real data</button>
+    <button type="button" data-ds="real" aria-pressed="true">Real data</button>
+    <button type="button" data-ds="demo" aria-pressed="false">Demo</button>
   </div>
   <select id="plan" aria-label="Run plan">
     <option value="full">Discovery run</option>
@@ -193,8 +220,8 @@
     <option value="judge">Judge + fact-check</option>
   </select>
   <select id="mode" aria-label="How to run">
-    <option value="step" selected>Step by step</option>
-    <option value="continuous">Continuous</option>
+    <option value="step">Step by step</option>
+    <option value="continuous" selected>Continuous</option>
   </select>
   <button type="button" id="dry">Dry run</button>
   <button type="button" id="start" class="primary">Start run</button>
@@ -271,7 +298,7 @@
     ["decided", "Decided", s => ["selected", "parked", "rejected", "building", "hosted"].includes(s)],
   ];
   const CAP = 40;
-  let ds = "demo", last = null, prevStage = {}, moved = {}, busy = false;
+  let ds = "real", last = null, prevStage = {}, moved = {}, busy = false, firstPoll = true;
 
   function tier(model) {
     if (!model) return "code";
@@ -480,11 +507,14 @@
       const st = await fetch(`/api/state?ds=${ds}`).then(r => r.json());
       last = st;
       $("stale").hidden = st.api >= 3;
+      if (firstPoll && ds === "real" && !st.available) { firstPoll = false; busy = false; return selectDs("demo"); }
+      firstPoll = false;
       if (!st.available) {
         $("pipe").innerHTML = `<p class="note">No real data found. Clone the private data repo into <code>data/</code>, or use the demo.</p>`;
         $("board").innerHTML = ""; $("log").innerHTML = ""; $("meters").innerHTML = "";
       } else { renderPipe(st); renderGuide(st); renderBoard(st); renderKilled(st); renderLog(st); }
       renderControls(st);
+      refreshPhase();
     } catch (e) { $("status").textContent = "server unreachable"; $("status").className = "pill error"; }
     busy = false;
   }
@@ -496,37 +526,150 @@
     return isNaN(ms) || ms < 0 ? "" : ms < 1000 ? ms + " ms" : ms < 60000 ? (ms / 1000).toFixed(1) + " s"
          : Math.floor(ms / 60000) + " min " + Math.round(ms % 60000 / 1000) + " s";
   };
-  let openPhaseIndex = null;
-  async function openPhase(k) {
-    openPhaseIndex = k;
-    const [title, sub, ns] = PHASES[k];
-    const known = last && last.layout ? ns.filter(n => last.layout.flat().includes(n)) : ns;
-    const d = await fetch(`/api/nodes?ds=${ds}&nodes=${known.join(",")}`).then(r => r.json());
-    const tasks = (d.nodes || []).map(t => {
-      const s = t.status || "pending", u = t.usage || {};
-      const use = u.calls ? `${u.calls} call${u.calls === 1 ? "" : "s"} · ${fmt(u.budget_tokens ?? u.tokens)} tokens · ${u.searches || 0} searches · ~$${(u.cost_usd || 0).toFixed(2)}` : "";
-      const what = t.log.length ? `<ul>${t.log.map(e => `<li>${esc(e.msg)}</li>`).join("")}</ul>`
-                 : `<p class="note">${s === "idle" ? "Nothing to do this time." : s === "skipped" ? "Skipped: the budget was hit."
-                                       : s === "off" ? "Not part of this run." : s === "pending" || s === "waiting" ? "Hasn't run yet." : "No log lines."}</p>`;
-      const ideas = t.ideas.length ? `<h4>Ideas it touched (${t.ideas.length})</h4><div class="rows">${t.ideas.map(i =>
-          `<button type="button" class="row" data-idea="${esc(i.id)}"><span>${esc(i.title)}<small>${esc(i.notes.join(" · "))}</small></span>
-           <span class="chip">${esc(i.stage_now || "")}</span></button>`).join("")}</div>` : "";
-      const scouts = (t.scouts || []).length ? `<h4>Scouts</h4><ul>${t.scouts.map(x => `<li><b>${esc(x.scout)}</b> · ${esc(x.angle || "")}<br>
-          ${x.ideas.length} ideas: ${esc(x.ideas.join(", "))} · ${x.signals} signals</li>`).join("")}</ul>` : "";
-      const trends = (t.trends || []).length ? `<h4>Trends found</h4><ul>${t.trends.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : "";
-      return `<section class="task"><h3>${esc(INFO[t.node][0])} <span class="chip"><i class="dot ${s}"></i>${esc(STATE[s] || s)}</span></h3>
-        <div class="meta">${esc(INFO[t.node][2])}${t.started_at ? " · took " + dur(t.started_at, t.ended_at) : ""}${use ? " · " + use : ""}</div>
-        <p>${esc(INFO[t.node][1])}</p><h4>What it did</h4>${what}${scouts}${trends}${ideas}</section>`;
+  // Airflow-style graph of the tasks inside a phase. Positions are [column, row]; "@…" are context
+  // boxes for the steps just before and after the phase. Edges come from the server's DAG.
+  const PHASE_GRAPH = [
+    {pos: {"@in": [0, 0], memory: [1, 0], "@out": [2, 0]}, ghost: {"@in": "Run starts", "@out": "Find new ideas · Critique"},
+     extra: [["@in", "memory"], ["memory", "@out"]]},
+    {pos: {"@in": [0, 0], trends: [1, 0], scouts: [2, 0], dedupe: [3, 0], "@out": [4, 0]}, ghost: {"@in": "Prepare", "@out": "Critic 1"},
+     extra: [["@in", "trends"], ["dedupe", "@out"]]},
+    {pos: {"@in": [0, 0], critic1_queued: [1, 0], reviser_queued: [2, 0], critic2_queued: [3, 0],
+           "@dedupe": [0, 1], critic1: [1, 1], reviser: [2, 1], critic2: [3, 1], "@out": [4, 1]},
+     ghost: {"@in": "Prepare", "@dedupe": "Dedupe", "@out": "Check"},
+     extra: [["@in", "critic1_queued"], ["@dedupe", "critic1"], ["critic2", "@out"]],
+     lanes: ["Ideas already waiting", "New ideas from the scouts"]},
+    {pos: {"@in": [0, 0.5], logistics: [1, 0], demand: [1, 1], "@out": [2, 0.5]}, ghost: {"@in": "Critic 2", "@out": "Judge"},
+     extra: [["@in", "logistics"], ["@in", "demand"], ["logistics", "@out"], ["demand", "@out"]]},
+    {pos: {"@in": [0, 0], judge: [1, 0], factcheck: [2, 0], "@out": [3, 0]}, ghost: {"@in": "Logistics + Demand", "@out": "Wrap up"},
+     extra: [["@in", "judge"], ["factcheck", "@out"]]},
+    {pos: {"@in": [0, 0], close: [1, 0], "@out": [2, 0]}, ghost: {"@in": "Fact-check", "@out": "Run saved"},
+     extra: [["@in", "close"], ["close", "@out"]]},
+  ];
+  const BOX = {w: 210, h: 142, gw: 120, gh: 44, gx: 46, gy: 30, lane: 22};
+  let openPhaseIndex = null, selNode = null, phaseData = null;
+
+  function short(n) {
+    const step = (last && last.steps && last.steps[n]) || n;
+    return LABEL[step] + (n.endsWith("_queued") ? " · waiting" : "");
+  }
+  function callChip(c) {
+    const ok = c.ok === false ? "error" : "done", t = c.ms < 1000 ? c.ms + " ms" : (c.ms / 1000).toFixed(1) + " s";
+    const tip = `${c.role} · ${c.model}${c.items && c.items.length ? "\n" + c.items.join(", ") : ""}${c.error ? "\n" + c.error : ""}`;
+    return `<div class="ti ${ok}" title="${esc(tip)}"><span>${esc(c.label || c.role)}</span><span>${t}</span></div>`;
+  }
+
+  function phaseGraph(k, d) {
+    const g = PHASE_GRAPH[k], byNode = Object.fromEntries((d.nodes || []).map(t => [t.node, t]));
+    const cols = Math.max(...Object.values(g.pos).map(p => p[0])) + 1;
+    const rows = Math.max(...Object.values(g.pos).map(p => Math.ceil(p[1]))) + 1;
+    const colW = [...Array(cols)].map((_, c) => Math.max(...Object.entries(g.pos).filter(([, p]) => p[0] === c)
+                                                       .map(([n]) => n.startsWith("@") ? BOX.gw : BOX.w)));
+    const colX = colW.map((_, c) => colW.slice(0, c).reduce((a, b) => a + b + BOX.gx, 0));
+    const top = g.lanes ? BOX.lane : 0;
+    const W = colX[cols - 1] + colW[cols - 1], H = top + rows * BOX.h + (rows - 1) * BOX.gy;
+    const geo = {};
+    for (const [n, [c, r]] of Object.entries(g.pos)) {
+      const ghost = n.startsWith("@"), w = ghost ? BOX.gw : BOX.w, h = ghost ? BOX.gh : BOX.h;
+      const x = colX[c] + (colW[c] - w) / 2, y = top + r * (BOX.h + BOX.gy) + (BOX.h - h) / 2;
+      geo[n] = {x, y, w, h};
+    }
+    const inPhase = Object.keys(g.pos).filter(n => !n.startsWith("@"));
+    const edges = [...g.extra];
+    for (const n of inPhase) for (const p of (last && last.dag && last.dag[n]) || []) if (inPhase.includes(p)) edges.push([p, n]);
+    const path = ([a, b]) => {
+      const A = geo[a], B = geo[b]; if (!A || !B) return "";
+      const x1 = A.x + A.w, y1 = A.y + A.h / 2, x2 = B.x - 3, y2 = B.y + B.h / 2, mx = (x1 + x2) / 2;
+      const back = x2 < x1;  // the waiting lane hands over to the new-ideas lane
+      const d = back ? `M${x1},${y1} C${x1 + 30},${y1} ${x1 + 30},${(y1 + y2) / 2} ${(x1 + x2) / 2},${(y1 + y2) / 2} S${x2 - 30},${y2} ${x2},${y2}`
+                     : `M${x1},${y1} C${mx},${y1} ${mx},${y2} ${x2},${y2}`;
+      return `<path d="${d}" class="${back ? "cross" : ""}" marker-end="url(#ah)"/>`;
+    };
+    const boxes = Object.entries(geo).map(([n, b]) => {
+      const style = `left:${b.x}px;top:${b.y}px;width:${b.w}px;height:${b.h}px`;
+      if (n.startsWith("@")) return `<div class="gnode ghost" style="${style}">${esc(g.ghost[n])}</div>`;
+      const t = byNode[n] || {}, s = t.status || "pending", calls = t.calls || [];
+      const took = t.started_at ? dur(t.started_at, t.ended_at || new Date().toISOString()) : "";
+      const shown = calls.slice(0, 3).map(callChip).join("") + (calls.length > 3 ? `<div class="more">+${calls.length - 3} more calls</div>` : "");
+      return `<div class="gnode ${s} ${n === selNode ? "sel" : ""}" style="${style}" data-node="${n}" tabindex="0" role="button">
+        <div class="gh"><i class="dot ${s}"></i><b>${esc(short(n))}</b></div>
+        <div class="gm">${esc(STATE[s] || s)}${took ? " · " + took : ""}${calls.length ? " · " + calls.length + " call" + (calls.length === 1 ? "" : "s") : ""}</div>
+        <div class="tis">${shown || `<div class="more">${s === "idle" ? "nothing to do" : s === "off" ? "not in this run" : s === "skipped" ? "skipped: budget" : "no calls yet"}</div>`}</div></div>`;
     }).join("");
+    const lanes = (g.lanes || []).map((l, r) => `<div class="lane" style="top:${top + r * (BOX.h + BOX.gy) - BOX.lane + 2}px">${esc(l)}</div>`).join("");
+    return `<div class="graph"><div class="gcanvas" style="width:${W}px;height:${H}px">
+      <svg width="${W}" height="${H}" aria-hidden="true"><defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z"/></marker></defs>
+      ${edges.map(path).join("")}</svg>${lanes}${boxes}</div></div>
+      <div class="legend">${["done", "running", "waiting", "idle", "skipped", "error", "pending"].map(x => `<span><i class="dot ${x}"></i>${STATE[x]}</span>`).join("")}</div>`;
+  }
+
+  function taskDetail(t) {
+    if (!t) return "";
+    const s = t.status || "pending", u = t.usage || {};
+    const use = u.calls ? `${u.calls} call${u.calls === 1 ? "" : "s"} · ${fmt(u.budget_tokens ?? u.tokens)} tokens · ${u.searches || 0} searches · ~$${(u.cost_usd || 0).toFixed(2)}` : "";
+    const what = t.log.length ? `<ul>${t.log.map(e => `<li>${esc(e.msg)}</li>`).join("")}</ul>`
+               : `<p class="note">${s === "idle" ? "Nothing to do this time." : s === "skipped" ? "Skipped: the budget was hit."
+                                     : s === "off" ? "Not part of this run." : s === "pending" || s === "waiting" ? "Hasn't run yet." : "No log lines."}</p>`;
+    const calls = (t.calls || []).length ? `<h4>Model calls (${t.calls.length})</h4><table class="usage"><thead><tr><th>Call</th><th>Model</th>
+        <th class="num">Time</th><th class="num">Tokens</th><th class="num">Searches</th><th>Result</th></tr></thead><tbody>${t.calls.map(c =>
+        `<tr><td>${esc(c.label || c.role)}${c.items && c.items.length ? `<br><small>${esc(c.items.slice(0, 8).join(", "))}${c.items.length > 8 ? "…" : ""}</small>` : ""}</td>
+         <td>${esc(tier(c.model))}</td><td class="num">${c.ms < 1000 ? c.ms + " ms" : (c.ms / 1000).toFixed(1) + " s"}</td>
+         <td class="num">${c.tokens != null ? fmt(c.tokens) : ""}</td><td class="num">${c.searches ?? ""}</td>
+         <td>${c.ok === false ? `<i class="dot error"></i>${esc(c.error || "failed")}` : `<i class="dot done"></i>ok`}</td></tr>`).join("")}</tbody></table>` : "";
+    const ideas = t.ideas.length ? `<h4>Ideas it touched (${t.ideas.length})</h4><div class="rows">${t.ideas.map(i =>
+        `<button type="button" class="row" data-idea="${esc(i.id)}"><span>${esc(i.title)}<small>${esc(i.notes.join(" · "))}</small></span>
+         <span class="chip">${esc(i.stage_now || "")}</span></button>`).join("")}</div>` : "";
+    const scouts = (t.scouts || []).length ? `<h4>Scouts</h4><ul>${t.scouts.map(x => `<li><b>${esc(x.scout)}</b> · ${esc(x.angle || "")}<br>
+        ${x.ideas.length} ideas: ${esc(x.ideas.join(", "))} · ${x.signals} signals</li>`).join("")}</ul>` : "";
+    const trends = (t.trends || []).length ? `<h4>Trends found</h4><ul>${t.trends.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : "";
+    return `<section class="task"><h3>${esc(INFO[t.node][0])} <span class="chip"><i class="dot ${s}"></i>${esc(STATE[s] || s)}</span></h3>
+      <div class="meta">${esc(INFO[t.node][2])}${t.started_at ? " · took " + dur(t.started_at, t.ended_at) : ""}${use ? " · " + use : ""}</div>
+      <p>${esc(INFO[t.node][1])}</p><h4>What it did</h4>${what}${calls}${scouts}${trends}${ideas}</section>`;
+  }
+
+  function renderPhase() {
+    const k = openPhaseIndex, d = phaseData; if (k === null || !d) return;
+    const [title, sub] = PHASES[k];
+    if (!selNode || !(d.nodes || []).some(t => t.node === selNode)) {
+      const ns = d.nodes || [];
+      selNode = (ns.find(t => t.status === "running") || ns.find(t => t.status === "waiting") || ns.find(t => (t.calls || []).length) || ns[0] || {}).node || null;
+    }
+    const html = `<h2>${k + 1}. ${esc(title)}</h2><p class="note" style="margin:0 0 12px">${esc(sub)}${d.run ? " · run " + esc(d.run) : ""}
+        · click a task for details</p>${phaseGraph(k, d)}
+      ${taskDetail((d.nodes || []).find(t => t.node === selNode))}
+      <div class="acts"><span class="spacer"></span><button data-close>Close</button></div>`;
+    if (html !== renderPhase.html) {
+      const y = $("dlgBody").scrollTop;
+      $("dlgBody").innerHTML = html; renderPhase.html = html; $("dlgBody").scrollTop = y;
+    }
+    $("dlgBody").dataset.view = "phase";
+  }
+  async function fetchPhase(k) {
+    const ns = PHASES[k][2];
+    const known = last && last.layout ? ns.filter(n => last.layout.flat().includes(n)) : ns;
+    phaseData = await fetch(`/api/nodes?ds=${ds}&nodes=${known.join(",")}`).then(r => r.json());
+  }
+  async function openPhase(k) {
+    if (openPhaseIndex !== k) selNode = null;
+    openPhaseIndex = k; renderPhase.html = "";
+    await fetchPhase(k);
     $("dlg").classList.add("wide");
-    $("dlgBody").innerHTML = `<h2>${k + 1}. ${esc(title)}</h2><p class="note" style="margin:0">${esc(sub)}${d.run ? " · run " + esc(d.run) : ""}</p>
-      ${tasks}<div class="acts"><span class="spacer"></span><button data-close>Close</button></div>`;
+    renderPhase();
     if (!$("dlg").open) $("dlg").showModal();
-    $("dlgBody").scrollTop = 0;
+  }
+  async function refreshPhase() {  // live updates while the graph is open
+    if (openPhaseIndex === null || !$("dlg").open || $("dlgBody").dataset.view !== "phase") return;
+    await fetchPhase(openPhaseIndex); renderPhase();
   }
   $("pipe").addEventListener("dblclick", e => { const c = e.target.closest(".phase"); if (c) openPhase(Number(c.dataset.phase)); });
   $("pipe").addEventListener("keydown", e => { const c = e.target.closest(".phase"); if (c && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openPhase(Number(c.dataset.phase)); } });
-  $("dlg").addEventListener("close", () => { $("dlg").classList.remove("wide"); openPhaseIndex = null; });
+  $("dlg").addEventListener("close", () => { $("dlg").classList.remove("wide"); openPhaseIndex = null; $("dlgBody").dataset.view = ""; });
+  $("dlgBody").addEventListener("click", e => {
+    const g = e.target.closest(".gnode[data-node]"); if (!g) return;
+    selNode = g.dataset.node; renderPhase();
+  });
+  $("dlgBody").addEventListener("keydown", e => {
+    const g = e.target.closest(".gnode[data-node]"); if (g && e.key === "Enter") { selNode = g.dataset.node; renderPhase(); }
+  });
 
   // ---- idea drawer ----
   const W = [["demand",3],["audience",2],["gap",2],["build",2],["share",2],["ads",1],["fun",1]];
@@ -550,7 +693,7 @@
       <div class="acts">${back !== null ? `<button data-back>← Back</button>` : ""}${canDecide ? `<button data-dec="selected" class="primary">Pick it</button><button data-dec="parked">Park</button>
         <button data-dec="rejected">Reject</button>` : ""}<span class="spacer"></span><button data-close>Close</button></div>`;
     $("dlgBody").dataset.back = back === null ? "" : String(back);
-    $("dlgBody").dataset.id = id;
+    $("dlgBody").dataset.id = id; $("dlgBody").dataset.view = "idea";
     if (back === null) $("dlg").classList.remove("wide");
     if (!$("dlg").open) $("dlg").showModal();
     $("dlgBody").scrollTop = 0;
@@ -585,12 +728,13 @@
   try { const t = localStorage.getItem("fishtank:tab"); if (t === "log" || t === "killed") showTab(t); } catch {}
 
   // ---- controls ----
-  document.querySelectorAll("[data-ds]").forEach(b => b.addEventListener("click", () => {
-    ds = b.dataset.ds; prevStage = {}; moved = {};
+  function selectDs(name) {
+    ds = name; prevStage = {}; moved = {}; renderGuide.html = ""; renderKilled.html = "";
     $("mode").value = ds === "demo" ? "step" : "continuous";
-    document.querySelectorAll("[data-ds]").forEach(x => x.setAttribute("aria-pressed", String(x === b)));
+    document.querySelectorAll("[data-ds]").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.ds === ds)));
     poll();
-  }));
+  }
+  document.querySelectorAll("[data-ds]").forEach(b => b.addEventListener("click", () => selectDs(b.dataset.ds)));
   $("onlyRun").addEventListener("change", () => last && (renderBoard(last), renderKilled(last)));
   $("killed").addEventListener("click", e => { const r = e.target.closest("tr[data-id]"); if (r) openIdea(r.dataset.id); });
   $("killed").addEventListener("keydown", e => { const r = e.target.closest("tr[data-id]"); if (r && e.key === "Enter") openIdea(r.dataset.id); });

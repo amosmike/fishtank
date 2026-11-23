@@ -227,6 +227,11 @@ A local dashboard to watch a run happen:
 - **Ideas tab:** ideas move between stage columns as critics, revisers and the judge act on them.
 - **Log tab:** the live log, plus a per-step table of model, status, calls, tokens and searches.
 
+Double-click a phase for an Airflow-style graph of the tasks inside it: one box per task, coloured by
+status, with dependency arrows and each task's individual model calls inside it (duration, tokens,
+searches, the ideas each call covered). Click a task for its log lines, its call table and the ideas
+it touched. Every model call is traced in the run file, so this works for finished runs too.
+
 Click any idea for its scores, evidence and full history, and to pick, park or reject it.
 
 **Demo mode** runs the real pipeline (queues, rules, caps, stage transitions, budgets, checkpoints) on a

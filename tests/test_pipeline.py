@@ -492,6 +492,18 @@ class PhaseDetails(unittest.TestCase):
             self.assertTrue(c1["log"] and c1["started_at"] and c1["usage"]["calls"] >= 1)
             self.assertEqual(len(d["nodes"][1]["scouts"]), 3)
             self.assertTrue(all(s["ideas"] for s in d["nodes"][1]["scouts"]))
+            # every model call is traced against the graph node that made it
+            usage = store.run("dash")["usage"]
+            self.assertEqual(len(usage["trace"]), usage["total"]["calls"])
+            for n, u in usage["by_node"].items():
+                self.assertEqual(sum(1 for c in usage["trace"] if c["node"] == n), u["calls"], n)
+            scouts = d["nodes"][1]
+            self.assertEqual(len(scouts["calls"]), 3)
+            self.assertTrue(all(c["ok"] and c["ms"] >= 0 and c["label"] for c in scouts["calls"]))
+            self.assertEqual(d["nodes"][0]["preds"], ["memory"])
+            self.assertIn("mine-spreadsheet-golf", c1["calls"][0]["items"])
+            # the trace survives a save and a resume
+            self.assertEqual(llm.Budget.from_dict(usage).trace, usage["trace"])
         finally:
             shutil.rmtree(tmp)
 

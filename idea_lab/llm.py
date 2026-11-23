@@ -16,6 +16,7 @@ import os
 import subprocess
 import tempfile
 import threading
+import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
@@ -73,7 +74,12 @@ class Budget:
     max_usd: float = field(default_factory=lambda: config.MAX_USD_PER_RUN)
     total: Usage = field(default_factory=Usage)
     by_node: dict[str, Usage] = field(default_factory=dict)
+    trace: list[dict] = field(default_factory=list)  # one entry per model call (see call())
     _lock: threading.Lock = field(default_factory=threading.Lock, repr=False, compare=False)
+
+    def trace_call(self, entry: dict) -> None:
+        with self._lock:
+            self.trace.append(entry)
 
     def record(self, node: str, u: Usage) -> None:
         with self._lock:
@@ -99,6 +105,7 @@ class Budget:
         return {
             "max_tokens": self.max_tokens, "max_searches": self.max_searches, "max_usd": self.max_usd,
             "total": row(self.total), "by_node": {k: row(v) for k, v in self.by_node.items()},
+            "trace": list(self.trace[-500:]),
         }
 
     @classmethod
@@ -109,6 +116,7 @@ class Budget:
         fields = set(Usage.__dataclass_fields__)
         b.total = Usage(**{k: v for k, v in (d.get("total") or {}).items() if k in fields})
         b.by_node = {k: Usage(**{kk: vv for kk, vv in v.items() if kk in fields}) for k, v in (d.get("by_node") or {}).items()}
+        b.trace = list(d.get("trace") or [])
         return b
 
 
@@ -133,21 +141,51 @@ def call(role: str, payload: dict, schema: dict, *, node: str, budget: Budget,
     effort = config.ROLE_EFFORT.get(role, "medium")
     n = config.ROLE_SEARCHES.get(role, 0) if searches is None else searches
     node = NODE.get() or node
-    if config.BACKEND == "demo":
-        from . import demo
-        with _SLOTS:
-            data, usage = demo.respond(role, payload, model, n)
-        budget.record(node, usage)
-        return data
-    system = load_prompt(prompt_role or role)
-    user = (f"{search_note(n)}\n{extra}\n\nReturn ONLY the JSON object described by the output schema.\n\n"
-            f"TASK INPUT (JSON):\n{json.dumps(payload, ensure_ascii=False, indent=1)}")
-    if config.BACKEND != "cli":
+    if config.BACKEND not in ("cli", "demo"):
         raise LimitError(f"unknown backend {config.BACKEND!r} (use cli or demo)")
-    with _SLOTS:
-        data, usage = _cli_call(model, effort, system, user, schema, n)
+    items = _items(payload)
+    entry = {"node": node, "role": role, "model": model, "label": _label(role, payload, items), "items": items[:30]}
+    with _SLOTS:  # timing starts once a slot is free, so it measures the call, not the queue
+        t0 = time.time()
+        entry["start"] = _iso(t0)
+        try:
+            if config.BACKEND == "demo":
+                from . import demo
+                data, usage = demo.respond(role, payload, model, n)
+            else:
+                system = load_prompt(prompt_role or role)
+                user = (f"{search_note(n)}\n{extra}\n\nReturn ONLY the JSON object described by the output schema.\n\n"
+                        f"TASK INPUT (JSON):\n{json.dumps(payload, ensure_ascii=False, indent=1)}")
+                data, usage = _cli_call(model, effort, system, user, schema, n)
+        except (ModelError, LimitError) as e:
+            budget.trace_call({**entry, "ms": int((time.time() - t0) * 1000), "ok": False, "error": str(e)[:200]})
+            raise
     budget.record(node, usage)
+    budget.trace_call({**entry, "ms": int((time.time() - t0) * 1000), "ok": True, "tokens": usage.budget_tokens,
+                       "searches": usage.searches, "cost": round(usage.cost_usd, 4)})
     return data
+
+
+def _items(payload: dict) -> list[str]:
+    """The ideas a call is about (ids, or titles for not-yet-saved scout candidates)."""
+    for key in ("ideas", "to_score", "candidates"):
+        v = payload.get(key)
+        if isinstance(v, list):
+            return [str(x.get("id") or x.get("title")) for x in v if isinstance(x, dict) and (x.get("id") or x.get("title"))]
+    return []
+
+
+def _label(role: str, payload: dict, items: list[str]) -> str:
+    if role == "scout":
+        return str((payload.get("brief") or {}).get("angle") or "scout")[:80]
+    if items:
+        return f"{len(items)} idea{'s' if len(items) != 1 else ''}"
+    return role
+
+
+def _iso(t: float) -> str:
+    from datetime import datetime, timezone
+    return datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z"
 
 
 # ---- CLI backend (claude -p) --------------------------------------------------------------------
