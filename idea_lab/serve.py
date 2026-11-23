@@ -364,6 +364,11 @@ def serve(port: int = 8765, open_browser: bool = False) -> int:
         print(f"Port {port} is in use by something else. Try: python -m idea_lab serve --port {port + 1}", file=sys.stderr)
         return 2
     print(f"Fishtank dashboard on {url}  (Ctrl-C to stop)", flush=True)
+    import signal as _signal
+
+    def _term(*_):  # `kill` sends SIGTERM: stop the run we started, then exit like Ctrl-C
+        raise KeyboardInterrupt
+    _signal.signal(_signal.SIGTERM, _term)
     if open_browser:
         webbrowser.open(url)
     try:

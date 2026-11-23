@@ -109,8 +109,11 @@ def _wait_for_release(ctx: Ctx, name: str) -> None:
         return
     ctx.node_status(name, "waiting")
     p = step_file(ctx.run_id)
+    parent = os.getppid()
     try:
         while True:
+            if os.getppid() != parent:  # the dashboard that started us is gone: nobody can press Next
+                raise KeyboardInterrupt("dashboard closed while waiting for Next step")
             try:
                 if name in json.loads(p.read_text()).get("released", []):
                     return
