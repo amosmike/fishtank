@@ -191,6 +191,9 @@ def state(ds: str) -> dict:
                      "updated_at": d.get("updated_at") or "", "rev_count": d.get("rev_count") or 0,
                      "last": {"by": h.get("by"), "note": (h.get("note") or "")[:140], "at": h.get("at")},
                      "touched": touched, "decided": is_protected(d),
+                     "pitch": (d.get("pitch") or "")[:260], "scores": d.get("scores"),
+                     "fact": (d.get("fact_check") or {}).get("status"),
+                     "decision": {k: (d.get("decision") or {}).get(k) for k in ("status", "reasons", "text", "at")} if d.get("decision") else None,
                      **({"stage_note": (d.get("stage_note") or "")[:240], "killed_at": _killed_at(d)} if d.get("stage") == "killed" else {})})
     q = memory.queues(ideas, datetime.now(timezone.utc))
     run_out = None

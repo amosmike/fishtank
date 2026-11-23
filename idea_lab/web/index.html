@@ -100,7 +100,29 @@
   .meter .bar i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .4s; }
 
   /* tabs */
-  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: -4px 0 14px; }
+  .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: -4px 0 14px; align-items: center; flex-wrap: wrap; }
+  .list { display: grid; gap: 8px; }
+  .lrow { display: grid; grid-template-columns: 44px 64px minmax(0, 1fr) 230px; gap: 14px; align-items: center; text-align: left;
+          width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
+  .lrow:hover { border-color: var(--accent); }
+  .lrow.top { border-left: 4px solid var(--accent); }
+  .lrow.touched { box-shadow: inset 3px 0 0 var(--run); }
+  .lrow .rank { font: 600 13px var(--mono); color: var(--muted); text-align: right; }
+  .lrow .score { font: 700 24px var(--body); letter-spacing: -.02em; }
+  .lrow .score small { display: block; font: 500 11px var(--body); color: var(--muted); }
+  .lrow .t { font-weight: 650; font-size: 14px; }
+  .lrow .p { font-size: 12.5px; color: var(--muted); margin-top: 2px; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .bars { display: grid; grid-template-columns: repeat(7, 1fr); gap: 5px; align-items: end; }
+  .bars div { font: 10px var(--mono); color: var(--muted); text-align: center; }
+  .bars i { display: block; height: 30px; background: var(--sunk); border-radius: 3px; position: relative; overflow: hidden; margin-bottom: 2px; }
+  .bars i b { position: absolute; left: 0; right: 0; bottom: 0; background: var(--accent); }
+  .dchip { font: 600 11px var(--body); padding: 2px 8px; border-radius: 99px; background: var(--sunk); color: var(--muted); text-transform: capitalize; }
+  .dchip.selected, .dchip.building, .dchip.hosted { background: var(--go-soft); color: var(--go); }
+  .dchip.parked { background: var(--hold-soft); color: var(--hold); }
+  .dchip.rejected { background: var(--stop-soft); color: var(--stop); }
+  .lrow.dec { grid-template-columns: 110px 64px minmax(0, 1fr) 150px; }
+  .lrow .when { font: 12px var(--mono); color: var(--muted); text-align: right; }
+  @media (max-width: 860px) { .lrow, .lrow.dec { grid-template-columns: 40px 56px minmax(0, 1fr); } .lrow .bars, .lrow .when { display: none; } }
   .tab { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; padding: 8px 12px;
          font-weight: 600; color: var(--muted); }
   .tab[aria-selected="true"] { color: var(--ink); border-bottom-color: var(--accent); }
@@ -247,16 +269,19 @@
 
   <section class="panel">
     <div class="tabs" role="tablist">
-      <button type="button" class="tab" role="tab" id="tab-ideas" aria-controls="pane-ideas" aria-selected="true">Ideas</button>
+      <button type="button" class="tab" role="tab" id="tab-ideas" aria-controls="pane-ideas" aria-selected="true">In progress <span class="count" id="ideasCount">0</span></button>
+      <button type="button" class="tab" role="tab" id="tab-leader" aria-controls="pane-leader" aria-selected="false">Leaderboard <span class="count" id="leaderCount">0</span></button>
+      <button type="button" class="tab" role="tab" id="tab-decided" aria-controls="pane-decided" aria-selected="false">Decided <span class="count" id="decidedCount">0</span></button>
       <button type="button" class="tab" role="tab" id="tab-killed" aria-controls="pane-killed" aria-selected="false">Killed <span class="count" id="killedCount">0</span></button>
       <button type="button" class="tab" role="tab" id="tab-log" aria-controls="pane-log" aria-selected="false">Log <span class="count" id="logCount">0</span></button>
+      <span class="spacer"></span>
+      <label class="tog"><input type="checkbox" id="onlyRun"> Only ideas this run touched</label>
     </div>
     <div id="pane-ideas" role="tabpanel" aria-labelledby="tab-ideas">
-      <div style="display:flex;justify-content:flex-end;margin-bottom:8px">
-        <label class="tog"><input type="checkbox" id="onlyRun"> Only ideas this run touched</label>
-      </div>
       <div class="board" id="board"></div>
     </div>
+    <div id="pane-leader" role="tabpanel" aria-labelledby="tab-leader" hidden><div class="list" id="leader"></div></div>
+    <div id="pane-decided" role="tabpanel" aria-labelledby="tab-decided" hidden><div class="list" id="decided"></div></div>
     <div id="pane-killed" role="tabpanel" aria-labelledby="tab-killed" hidden>
       <table class="killed"><thead><tr><th>Idea</th><th>Why</th><th>By</th><th>When</th></tr></thead><tbody id="killed"></tbody></table>
     </div>
@@ -293,9 +318,6 @@
     ["generated", "Generated", s => s === "generated"],
     ["revising", "Revising", s => s === "revising"],
     ["validated", "Validated", s => s === "validated"],
-    ["shortlisted", "Shortlisted (top 6)", s => s === "shortlisted"],
-    ["judged", "Judged", s => s === "judged"],
-    ["decided", "Decided", s => ["selected", "parked", "rejected", "building", "hosted"].includes(s)],
   ];
   const CAP = 40;
   let ds = "real", last = null, prevStage = {}, moved = {}, busy = false, firstPoll = true;
@@ -451,6 +473,7 @@
       prevStage[i.id] = i.stage;
     }
     for (const k in moved) if (now - moved[k] > 4000) delete moved[k];
+    $("ideasCount").textContent = ideas.filter(i => COLS.some(([, , test]) => test(i.stage))).length;
     $("board").innerHTML = COLS.map(([key, title, test]) => {
       let col = ideas.filter(i => test(i.stage));
       col.sort((a, b) => key === "shortlisted" || key === "judged" ? (b.total ?? -1) - (a.total ?? -1) || a.id.localeCompare(b.id)
@@ -458,6 +481,44 @@
       const extra = col.length > CAP ? `<div class="more">+${col.length - CAP} older</div>` : "";
       return `<div class="col"><h3><span>${title}</span><b>${col.length}</b></h3>${col.slice(0, CAP).map(card).join("")}${extra}</div>`;
     }).join("");
+  }
+
+  const DECIDED = ["selected", "building", "hosted", "parked", "rejected"];
+  const SHORT = {demand: "dem", audience: "aud", gap: "gap", build: "bld", share: "shr", ads: "ads", fun: "fun"};
+  function bars(sc) {
+    if (!sc) return `<div class="note" style="font-size:12px">not scored yet</div>`;
+    return `<div class="bars">${Object.keys(SHORT).map(k => `<div title="${k}: ${sc[k] ?? "–"}/5"><i><b style="height:${(sc[k] || 0) * 20}%"></b></i>${SHORT[k]}</div>`).join("")}</div>`;
+  }
+  function setList(id, html) { if (html !== setList[id]) { $(id).innerHTML = html; setList[id] = html; } }
+
+  function renderLeader(st) {
+    const only = $("onlyRun").checked, top = new Set(st.top6 || []);
+    const rows = st.ideas.filter(i => ["judged", "shortlisted"].includes(i.stage) && (!only || i.touched))
+                         .sort((a, b) => (b.total ?? -1) - (a.total ?? -1) || a.id.localeCompare(b.id));
+    $("leaderCount").textContent = rows.length;
+    setList("leader", rows.length ? rows.map((i, n) => `<button type="button" class="lrow ${top.has(i.id) ? "top" : ""} ${i.touched ? "touched" : ""}" data-id="${esc(i.id)}">
+        <span class="rank">#${i.total != null ? n + 1 : "–"}</span>
+        <span class="score">${i.total ?? "–"}<small>${top.has(i.id) ? "top 6" : "/100"}</small></span>
+        <span><span class="t">${esc(i.title)}</span>
+          <span class="chips">${i.kind ? `<span class="chip">${esc(i.kind)}</span>` : ""}${i.lane === "big" ? `<span class="chip">big build</span>` : ""}${i.source === "michael" ? `<span class="chip mine">owner</span>` : ""}${i.fact ? `<span class="chip">fact-check ${esc(i.fact)}</span>` : ""}${i.touched ? `<span class="chip">this run</span>` : ""}</span>
+          <span class="p">${esc(i.pitch || "")}</span></span>
+        ${bars(i.scores)}</button>`).join("")
+      : `<p class="note">No judged ideas${only ? " in this run" : " yet"}.</p>`);
+  }
+
+  function renderDecided(st) {
+    const only = $("onlyRun").checked;
+    const at = i => (i.decision && i.decision.at) || i.last.at || i.updated_at || "";
+    const rows = st.ideas.filter(i => DECIDED.includes(i.stage) && (!only || i.touched)).sort((a, b) => at(b).localeCompare(at(a)));
+    $("decidedCount").textContent = rows.length;
+    setList("decided", rows.length ? rows.map(i => {
+      const d = i.decision || {}, why = [...(d.reasons || []), d.text].filter(Boolean).join(" · ");
+      return `<button type="button" class="lrow dec" data-id="${esc(i.id)}">
+        <span><span class="dchip ${esc(i.stage)}">${esc(i.stage)}</span></span>
+        <span class="score">${i.total ?? "–"}<small>/100</small></span>
+        <span><span class="t">${esc(i.title)}</span><span class="p">${why ? "“" + esc(why) + "”" : esc(i.pitch || "")}</span></span>
+        <span class="when">${esc(at(i).slice(0, 10))}</span></button>`;
+    }).join("") : `<p class="note">Nothing decided${only ? " in this run" : " yet"}.</p>`);
   }
 
   function renderKilled(st) {
@@ -512,7 +573,7 @@
       if (!st.available) {
         $("pipe").innerHTML = `<p class="note">No real data found. Clone the private data repo into <code>data/</code>, or use the demo.</p>`;
         $("board").innerHTML = ""; $("log").innerHTML = ""; $("meters").innerHTML = "";
-      } else { renderPipe(st); renderGuide(st); renderBoard(st); renderKilled(st); renderLog(st); }
+      } else { renderPipe(st); renderGuide(st); renderBoard(st); renderLeader(st); renderDecided(st); renderKilled(st); renderLog(st); }
       renderControls(st);
       refreshPhase();
     } catch (e) { $("status").textContent = "server unreachable"; $("status").className = "pill error"; }
@@ -716,7 +777,7 @@
 
   // ---- tabs ----
   function showTab(name) {
-    for (const t of ["ideas", "killed", "log"]) {
+    for (const t of ["ideas", "leader", "decided", "killed", "log"]) {
       $("tab-" + t).setAttribute("aria-selected", String(t === name));
       $("pane-" + t).hidden = t !== name;
     }
@@ -725,7 +786,9 @@
   $("tab-ideas").addEventListener("click", () => showTab("ideas"));
   $("tab-log").addEventListener("click", () => showTab("log"));
   $("tab-killed").addEventListener("click", () => showTab("killed"));
-  try { const t = localStorage.getItem("fishtank:tab"); if (t === "log" || t === "killed") showTab(t); } catch {}
+  $("tab-leader").addEventListener("click", () => showTab("leader"));
+  $("tab-decided").addEventListener("click", () => showTab("decided"));
+  try { const t = localStorage.getItem("fishtank:tab"); if (["leader", "decided", "killed", "log"].includes(t)) showTab(t); } catch {}
 
   // ---- controls ----
   function selectDs(name) {
@@ -735,7 +798,8 @@
     poll();
   }
   document.querySelectorAll("[data-ds]").forEach(b => b.addEventListener("click", () => selectDs(b.dataset.ds)));
-  $("onlyRun").addEventListener("change", () => last && (renderBoard(last), renderKilled(last)));
+  $("onlyRun").addEventListener("change", () => last && (renderBoard(last), renderLeader(last), renderDecided(last), renderKilled(last)));
+  for (const id of ["leader", "decided"]) $(id).addEventListener("click", e => { const r = e.target.closest("[data-id]"); if (r) openIdea(r.dataset.id); });
   $("killed").addEventListener("click", e => { const r = e.target.closest("tr[data-id]"); if (r) openIdea(r.dataset.id); });
   $("killed").addEventListener("keydown", e => { const r = e.target.closest("tr[data-id]"); if (r && e.key === "Enter") openIdea(r.dataset.id); });
   $("dry").addEventListener("click", async () => {

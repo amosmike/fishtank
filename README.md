@@ -224,7 +224,10 @@ A local dashboard to watch a run happen:
   whether it's waiting, running, done or had nothing to do, with a dot per step. Phases that run in
   parallel light up together.
 - **Budget meters:** fill against the run's caps.
-- **Ideas tab:** ideas move between stage columns as critics, revisers and the judge act on them.
+- **Tabs:** *In progress* (ideas moving between submitted, generated, revising and validated as
+  critics and revisers act on them), *Leaderboard* (judged ideas ranked, top 6 marked, with score
+  bars), *Decided* (my picks, parks and rejections with my reasons), *Killed* (why and by which
+  step), and *Log*.
 - **Log tab:** the live log, plus a per-step table of model, status, calls, tokens and searches.
 
 Double-click a phase for an Airflow-style graph of the tasks inside it: one box per task, coloured by
