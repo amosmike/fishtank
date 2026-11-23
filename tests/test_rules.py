@@ -1,4 +1,5 @@
 """Deterministic rules from the playbook. Run: python -m unittest discover -s tests (from idea-lab/)."""
+import os
 import random
 import shutil
 import sys
@@ -8,6 +9,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+os.environ.setdefault("IDEA_LAB_EMBEDDER", "hash")  # retrieval in tests: deterministic, no model download
 sys.path.insert(0, str(ROOT))
 
 from idea_lab import dice, rules  # noqa: E402

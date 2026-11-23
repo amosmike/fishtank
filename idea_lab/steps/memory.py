@@ -210,7 +210,11 @@ def brief(store: Store, now: datetime, for_role: str = "scout") -> dict:
     }
     if for_role == "scout":
         b["idea_map"] = idea_map(ideas, classes)
-        b["existing_ideas"] = [f"{d.get('title') or i} — {(d.get('pitch') or '')[:90]}" for i, d in sorted(ideas.items())]
+        from ..retrieval import rag
+        if rag.available():  # every title (never re-propose these); the relevant ones come in full via related_ideas
+            b["existing_titles"] = [d.get("title") or i for i, d in sorted(ideas.items())]
+        else:
+            b["existing_ideas"] = [f"{d.get('title') or i} — {(d.get('pitch') or '')[:90]}" for i, d in sorted(ideas.items())]
         b["recent_critic_kills"] = recent_kills(ideas)
         b["stopped_sites_no_variants"] = [s.get("name") for s in store.all("sites").values() if s.get("status") == "stopped"]
     return b

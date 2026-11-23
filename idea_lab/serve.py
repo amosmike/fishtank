@@ -254,6 +254,21 @@ class Handler(BaseHTTPRequestHandler):
             if root is None:
                 return self._json({"error": "no data"}, 404)
             return self._json(node_detail(Store(root), [x for x in qs.get("nodes", "").split(",") if x]))
+        if u.path in ("/api/similar", "/api/search"):
+            from .retrieval import rag
+            root = data_dir(ds)
+            if root is None or not rag.available():
+                return self._json({"results": [], "available": False})
+            from .retrieval import index_for
+            store = Store(root)
+            idx = index_for(store)
+            k = max(1, min(int(qs.get("k") or 6), 50))
+            hits = idx.similar(qs.get("id", ""), k) if u.path == "/api/similar" else idx.search(qs.get("q", ""), k)
+            ideas = store.ideas()
+            return self._json({"available": True, "embedder": idx.embedder.name if idx.embedder else "bm25",
+                               "results": [{"id": i, "title": ideas[i].get("title") or i, "stage": ideas[i].get("stage"),
+                                            "total": ideas[i].get("total"), "outcome": rag.outcome(ideas[i]), "score": round(s, 4)}
+                                           for i, s in hits if i in ideas]})
         if u.path == "/api/idea":
             root = data_dir(ds)
             d = Store(root).get("ideas", qs.get("id", "")) if root else None
@@ -261,13 +276,16 @@ class Handler(BaseHTTPRequestHandler):
         self._send(404, b"not found", "text/plain")
 
     def do_POST(self):
+        # Read the body before any refusal: answering and closing with an unread body makes the OS
+        # reset the connection, so the client sees "connection reset" instead of the 403.
+        n = min(int(self.headers.get("Content-Length") or 0), 1_000_000)
+        raw = self.rfile.read(n) if n else b""
         if not self._local():
             return
         if self.headers.get("X-Fishtank") != "1":
             return self._json({"error": "missing X-Fishtank header"}, 403)
-        n = int(self.headers.get("Content-Length") or 0)
         try:
-            body = json.loads(self.rfile.read(n) or b"{}")
+            body = json.loads(raw or b"{}")
         except json.JSONDecodeError:
             return self._json({"error": "bad JSON"}, 400)
         ds = body.get("ds", "demo")

@@ -1,6 +1,7 @@
 """Queues, decisions, dedupe, stream parsing, routing, evals, and end-to-end runs with a fake model
 (no network, no tokens). Uses the fictional sample_data/."""
 import json
+import os
 import shutil
 import sys
 import tempfile
@@ -10,6 +11,7 @@ from pathlib import Path
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
+os.environ.setdefault("IDEA_LAB_EMBEDDER", "hash")  # retrieval in tests: deterministic, no model download
 sys.path.insert(0, str(ROOT))
 
 from idea_lab import config, decisions, evals, graph, llm, nodes, rules  # noqa: E402
@@ -501,7 +503,7 @@ class PhaseDetails(unittest.TestCase):
             self.assertEqual(len(scouts["calls"]), 3)
             self.assertTrue(all(c["ok"] and c["ms"] >= 0 and c["label"] for c in scouts["calls"]))
             self.assertEqual(d["nodes"][0]["preds"], ["memory"])
-            self.assertIn("mine-spreadsheet-golf", c1["calls"][0]["items"])
+            self.assertTrue(any("mine-spreadsheet-golf" in c["items"] for c in c1["calls"]))  # calls run in parallel
             # the trace survives a save and a resume
             self.assertEqual(llm.Budget.from_dict(usage).trace, usage["trace"])
         finally:

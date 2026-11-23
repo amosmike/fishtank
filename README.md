@@ -18,6 +18,7 @@ idea, and those calls feed back into the next run.
 - [Architecture](#architecture)
 - [Design decisions](#design-decisions)
 - [Evaluation](#evaluation)
+- [Retrieval: RAG and vector search](#retrieval-rag-and-vector-search)
 - [Workflow](#workflow)
 - [Watch it run](#watch-it-run)
 - [Quick start](#quick-start)
@@ -186,6 +187,59 @@ Each report records the model, the backend and a hash of the judge prompt. That 
 `eval --list` a regression history: a prompt or model change ships only if taste agreement holds
 and stability doesn't get worse. The labelled set grows with every decision I make in the viewer.
 
+## Retrieval: RAG and vector search
+
+The lab's own history is the knowledge base: every idea, what happened to it, and my decisions in my
+own words. Retrieval over it does three jobs in the pipeline.
+
+| Where | What is retrieved | Why |
+|---|---|---|
+| Dedupe | Each new idea's nearest existing ideas | The model checks a handful of real candidates instead of every pitch in the lab, so the prompt stops growing with the lab and near-variants with different wording are caught |
+| Critics (RAG) | The ideas most similar to the one under review, each with its outcome: killed and why, its score, or my decision in my words | Critics learn from the lab's history instead of rediscovering the same dead ends. They must cite the ids they relied on (`precedents`), and can only cite what was retrieved |
+| Scouts | Every existing title, plus the ideas most related to the scout's brief, with outcomes | Scouts see relevant history in full while the brief stays small as the lab grows |
+
+The judge gets none of this. It stays blind: retrieved context carries my decisions, which would leak
+the answer.
+
+**How search works** (`idea_lab/retrieval/`):
+
+- **Embeddings:** BAAI/bge-small-en-v1.5 runs locally through fastembed (ONNX, no PyTorch, no API
+  key). Its 384-dimensional vectors are L2-normalised, so cosine similarity is a dot product.
+- **Keywords:** BM25, implemented from the formula in about 40 lines, for names and rare words.
+- **Hybrid:** the two rankings are fused with reciprocal rank fusion, which uses ranks only, so cosine
+  and BM25 scores never need calibrating against each other.
+- **What gets indexed:** title, pitch, and the idea's category and core mechanic from the idea map.
+- **Exact, not approximate:** with a few hundred ideas, a matrix-vector product is exact and takes
+  microseconds. An approximate index (HNSW, IVF) or a vector database would add moving parts for no
+  gain. I'd switch to pgvector or a dedicated store at around 100k items, or once I needed filtered
+  queries across concurrent writers.
+- **Incremental:** each idea's text is hashed, only new or changed ideas are re-embedded, and vectors
+  are cached on disk per embedding model.
+- **Graceful fallback:** without the embedding model it falls back to BM25, and
+  `IDEA_LAB_RETRIEVAL=off` restores the pre-retrieval prompts.
+
+**How I evaluated it** (`python -m idea_lab eval --suite retrieval`, local, no model calls). There are
+two benchmarks, both built from labels already in the data:
+
+- **Nearest:** every scout names the closest existing idea. Does search, given the new idea, find the
+  one the scout named? Only ideas that existed at the time count as candidates, so there's no
+  look-ahead. The label is one scout's judgement, so it's noisy, and recall@5 and @10 matter more
+  than recall@1.
+- **Revision:** query with an idea's original pitch, without its title. Is the revised idea found?
+
+Each reports recall@1, @5 and @10 and MRR for BM25, vector and hybrid search. Two decisions came
+straight from this eval:
+
+1. **Adding category and mechanic to the indexed text** made a large difference on the nearest
+   benchmark. Scouts judge "nearest" largely by mechanic, and plain title and pitch similarity missed
+   that.
+2. **Unweighted fusion.** Weighting vector search above BM25 in the fusion made no meaningful
+   difference, so I kept the standard unweighted form rather than tune a parameter on a few hundred
+   noisy labels.
+
+The revision benchmark turned out to be saturated: revisions keep enough wording that every method
+finds them. I keep it as a regression check, not as evidence.
+
 ## Workflow
 
 How I build and change this system:
@@ -284,6 +338,7 @@ idea_lab/
   rules.py          scoring, caps, stability, stage transitions, protection (pure)
   llm.py            backends, structured output, usage and budget accounting
   evals.py          judge eval: taste agreement, stability, leakage control
+  retrieval/        embeddings, BM25, hybrid search (RRF), incremental index, RAG helpers, retrieval eval
   prompts/          one prompt per role + shared rules
   schemas.py        JSON schema per role
   checks/           RDAP, URL and licence-page checks (pure code)

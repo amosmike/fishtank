@@ -130,6 +130,7 @@ def _critic(p, rng, round2=False):
             "build_plan": "Static page + JSON built nightly (demo)", "traffic_plan": "Share loop + two communities (demo)",
             "monetisation": "Display ads later", "risks": "Data freshness (demo)", "lane": i.get("lane") or "week",
             "effort_weeks": 1, "running_cost": "£0-5/month (demo)", "famous_original": "none",
+            "precedents": [x["id"] for x in (i.get("similar_past") or [])[:rng.randint(0, 2)]],
         })
     return {"ideas": out}
 

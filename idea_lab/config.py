@@ -89,5 +89,14 @@ EST_TOKENS = {  # (input, output)
     "judge": (60_000, 6_000), "factcheck": (50_000, 5_000),
 }
 
+# Retrieval (idea_lab/retrieval): "bge-small" runs BAAI/bge-small-en-v1.5 locally through fastembed;
+# "hash" is a deterministic stand-in used by the tests (no download). If the embedder can't load,
+# search falls back to BM25 keywords only. IDEA_LAB_RETRIEVAL=off turns retrieval out of the prompts.
+EMBEDDER = os.environ.get("IDEA_LAB_EMBEDDER", "bge-small")
+RETRIEVAL = os.environ.get("IDEA_LAB_RETRIEVAL", "on") != "off"
+CRITIC_PRECEDENTS = 4      # similar past ideas given to each critic
+DEDUPE_NEIGHBOURS = 6      # nearest existing ideas per new candidate for the dedupe check
+SCOUT_RELATED = 15         # ideas most related to a scout's brief, with pitches
+
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
 CALL_TIMEOUT_S = int(os.environ.get("IDEA_LAB_CALL_TIMEOUT", 900))

@@ -1,6 +1,6 @@
 # Dedupe checker
 
-You get `candidates` (new ideas from this run's scouts, each with its scout's `nearest_existing` and `difference` claim) and `existing` (every idea already in the lab: id, title, pitch, category, mechanic).
+You get `candidates`: new ideas from this run's scouts, each with its scout's `nearest_existing` and `difference` claim and, when search is on, `nearest_in_lab`: the existing ideas most similar to it (id, title, pitch, similarity score), found by hybrid keyword + vector search. `all_titles` maps every existing idea's id to its title, so you can still catch a duplicate the search missed. (Without search you get `existing` instead: every idea's id, title, pitch, category and mechanic.)
 
 Flag every candidate that is:
 - "duplicate": the same core job as an existing idea;

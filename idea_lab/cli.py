@@ -192,6 +192,13 @@ def cmd_apply(a) -> int:
 def cmd_eval(a) -> int:
     from . import evals
     store = Store()
+    if a.suite == "retrieval":  # local, no model calls: BM25 vs vector vs hybrid on labels from the data
+        from .retrieval import evaluate
+        report = evaluate.run(store)
+        print(evaluate.table(report))
+        if not a.dry_run:
+            print(f"\nSaved {evaluate.save(store, report)}")
+        return 0
     if a.list:
         for r in evals.history(store) or []:
             print(evals.summary_line(r))
@@ -255,7 +262,9 @@ def main(argv: list[str] | None = None) -> int:
     sv.add_argument("--open", action="store_true", help="open the browser")
     sv.set_defaults(fn=cmd_serve)
 
-    e = sub.add_parser("eval", help="judge eval against the owner's decisions (taste agreement + stability)")
+    e = sub.add_parser("eval", help="evals: the judge against the owner's decisions, or retrieval quality")
+    e.add_argument("--suite", choices=["judge", "retrieval"], default="judge",
+                   help="judge: taste agreement + stability (model calls); retrieval: BM25/vector/hybrid recall (local, free)")
     e.add_argument("--repeats", type=int, default=3, help="identical runs per idea, for stability (default 3)")
     e.add_argument("--folds", type=int, default=3, help="folds for leave-fold-out taste summaries (default 3)")
     e.add_argument("--model", help=f"judge model to evaluate (default {config.ROLE_MODEL['judge']})")

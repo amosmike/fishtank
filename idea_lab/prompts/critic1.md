@@ -21,4 +21,6 @@ Ideas whose `source` is "michael" (Michael's own): the static, no-backend rule i
 
 Some inputs are carry-overs marked `fill_only`: they were judged under an older playbook and lack a wedge or serp_note. For those, fill in wedge, serp_note and competitor weaknesses only, and return verdict "live" unless the beatability rule clearly fails.
 
+LESSONS FROM SIMILAR IDEAS: each idea may come with `similar_past`, the ideas already in the lab most similar to it (found by search), each with its `outcome`: killed and why, its score, or Michael's decision in his own words. Use them as evidence. Don't repeat a failure the lab has already found; if an idea is close to one that was killed, say what's different now or treat the old reason as a risk; if it's close to one Michael rejected, his words apply. Put the ids you actually relied on in `precedents` ([] if none were relevant). Never cite an id that isn't in `similar_past`.
+
 Fill every field; use "" or [] where something doesn't apply. `fix_worked` is "" in round 1.

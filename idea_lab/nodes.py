@@ -17,6 +17,7 @@ from .rules import (apply_fact_check, apply_famous_caps, apply_stability, critic
                     is_michaels, is_protected, leaderboard, logistics_outcome, stale, top_n, total)
 from .steps import close as close_step
 from .steps import dedupe as dedupe_step
+from .retrieval import rag
 from .steps import memory
 from .store import Store, now_iso
 
@@ -176,6 +177,11 @@ def memory_node(state: dict, ctx: Ctx) -> dict:
     for line in apply_decisions(ctx.store):
         ctx.log("decisions", line)
     classify_missing(ctx)
+    if rag.available():
+        from .retrieval import index_for
+        idx = index_for(ctx.store)
+        ctx.log("memory", f"Retrieval index: {len(idx.ids)} ideas, {idx.embedded_last_update} embedded "
+                          f"({idx.embedder.name if idx.embedder else 'BM25 only'})")
     ideas = ctx.store.ideas()
     q = memory.queues(ideas, ctx.now())
     ctx.log("memory", "Queues: " + ", ".join(f"{k} {len(v)}" for k, v in q.items() if k != "top6") +
@@ -252,6 +258,10 @@ def scouts_node(state: dict, ctx: Ctx) -> dict:
 
     def one(b):
         payload = {"brief": {k: v for k, v in b.items() if k != "scout"}, "memory": mem, "trends": trends}
+        if rag.available():  # the lab's history most relevant to this brief, with what happened to it
+            d = b.get("dice") or {}
+            q = " ".join([b.get("angle") or "", d.get("audience") or "", d.get("format") or "", d.get("engine") or ""])
+            payload["related_ideas"] = rag.related(ctx.store, q)
         if b["scout"] == "trends":
             payload["brief"]["instruction"] = "Build ideas directly from the trends' idea seeds. A fading trend can't be the main evidence."
         out = llm.call("scout", payload, schemas.SCOUT, node="scouts", budget=ctx.budget)
@@ -285,12 +295,19 @@ def dedupe_node(state: dict, ctx: Ctx) -> dict:
     kept, dropped = dedupe_step.code_dedupe(cands, existing)
     if kept and not skip_if_over_budget(ctx, "dedupe model pass"):
         im = (ctx.store.config("idea_map") or {}).get("ideas", {})
-        payload = {
-            "candidates": [trim(c, ["title", "pitch", "nearest_existing", "difference", "category", "mechanic"]) for c in kept],
-            "existing": [{"id": i, "title": d.get("title"), "pitch": (d.get("pitch") or "")[:110],
-                          "category": d.get("category") or im.get(i, {}).get("category"),
-                          "mechanic": d.get("mechanic") or im.get(i, {}).get("mechanic")} for i, d in existing.items()],
-        }
+        cands = [trim(c, ["title", "pitch", "nearest_existing", "difference", "category", "mechanic"]) for c in kept]
+        if rag.available():  # retrieval: each candidate with its nearest existing ideas, plus every title
+            from .retrieval import doc_text
+            for c in cands:
+                c["nearest_in_lab"] = [{k: v for k, v in n.items() if k != "outcome"} for n in rag.neighbours(ctx.store, doc_text(c))]
+            payload = {"candidates": cands, "all_titles": {i: d.get("title") for i, d in sorted(existing.items())}}
+        else:
+            payload = {
+                "candidates": cands,
+                "existing": [{"id": i, "title": d.get("title"), "pitch": (d.get("pitch") or "")[:110],
+                              "category": d.get("category") or im.get(i, {}).get("category"),
+                              "mechanic": d.get("mechanic") or im.get(i, {}).get("mechanic")} for i, d in existing.items()],
+            }
         flags = llm.call("dedupe", payload, schemas.DEDUPE, node="dedupe", budget=ctx.budget).get("flags") or []
         ctx.save_usage()
         flagged = {f.get("candidate"): f for f in flags}
@@ -322,7 +339,7 @@ def dedupe_node(state: dict, ctx: Ctx) -> dict:
     return {"done": ["dedupe"]}
 
 
-def _critic_payload(d: dict, i: str, fill_only: bool = False) -> dict:
+def _critic_payload(d: dict, i: str, fill_only: bool = False, store: Store | None = None) -> dict:
     p = {"id": i, **trim(d, ["title", "pitch", "kind", "lane", "effort_weeks", "running_cost", "search_phrase",
                              "signals", "known_rivals", "direct_demand", "why_big", "v1", "source"])}
     if is_michaels(d):
@@ -330,6 +347,8 @@ def _critic_payload(d: dict, i: str, fill_only: bool = False) -> dict:
     if fill_only:
         p["fill_only"] = True
         p.update(trim(d, ["competitors", "wedge", "serp_note"]))
+    if store is not None and rag.available():
+        p["similar_past"] = rag.precedents(store, i)
     return p
 
 
@@ -370,7 +389,7 @@ def critic1_node(state: dict, ctx: Ctx) -> dict:
     taste = memory.taste_summary(ideas)
 
     def one(batch):
-        payload = {"ideas": [_critic_payload(ideas[i], i, fill) for i, fill in batch], "taste": taste}
+        payload = {"ideas": [_critic_payload(ideas[i], i, fill, ctx.store) for i, fill in batch], "taste": taste}
         out = llm.call("critic1", payload, schemas.CRITIC, node="critic1", budget=ctx.budget)
         fills = {i: f for i, f in batch}
         res = []
@@ -469,7 +488,7 @@ def critic2_node(state: dict, ctx: Ctx) -> dict:
     def payload_for(i):
         d = ideas[i]
         r1 = critique(d, "critique")
-        p = _critic_payload(d, i)
+        p = _critic_payload(d, i, store=ctx.store)
         p["change"] = ((d.get("revisions") or [{}])[-1]).get("change", "")
         p["round1"] = {**trim(r1, ["verdict", "kill_reason", "fixes", "wedge", "serp_note", "text"]),
                        "competitors": [trim(c, ["name", "url", "weakness"]) for c in (r1.get("competitors") or d.get("competitors") or [])][:6]}

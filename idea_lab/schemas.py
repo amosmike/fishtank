@@ -52,7 +52,7 @@ CRITIC = obj({"ideas": arr(obj({
     "fix_worked": S, "fixes": arr(S), "competitors": arr(COMPETITOR), "serp_note": S, "wedge": S,
     "gap_note": S, "demand_evidence": S, "audience_estimate": S, "data_sources": S, "build_plan": S,
     "traffic_plan": S, "monetisation": S, "risks": S, "lane": enum("week", "big"), "effort_weeks": N,
-    "running_cost": S, "famous_original": S,
+    "running_cost": S, "famous_original": S, "precedents": arr(S),
 }))})
 
 REVISER = obj({"ideas": arr(obj({

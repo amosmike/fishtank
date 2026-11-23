@@ -10,4 +10,6 @@ Use the same verdicts, rules and fields as round 1:
 
 Beatability, not mere competition: judge incumbents on speed, ad load, mobile, sign-up/app walls, staleness, UK coverage and steps to the answer; say who ranks in `serp_note`; consider share loops, portals and communities as distribution. The FAMOUS-ORIGINAL RULE applies: a famous free daily game with a new theme is not a wedge; name it in `famous_original` or "none". Lane "big": lightest stack and a real pricing URL. Michael's own ideas (`source` "michael"): use "revise" rather than "kill" unless the problem is policy or legal.
 
+LESSONS FROM SIMILAR IDEAS: each idea may come with `similar_past`, the ideas already in the lab most similar to it (found by search), each with its `outcome`: killed and why, its score, or Michael's decision in his own words. Use them as evidence. Don't repeat a failure the lab has already found; if an idea is close to one that was killed, say what's different now or treat the old reason as a risk; if it's close to one Michael rejected, his words apply. Put the ids you actually relied on in `precedents` ([] if none were relevant). Never cite an id that isn't in `similar_past`.
+
 Fill every field; use "" or [] where something doesn't apply.

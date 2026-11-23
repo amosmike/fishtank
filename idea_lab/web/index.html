@@ -289,6 +289,7 @@
     </div>
     <div class="toolbar" id="toolbar">
       <input type="search" id="q" placeholder="Search titles, ids, pitches…" aria-label="Search ideas">
+      <label class="tog" title="Match by meaning (hybrid keyword + vector search) instead of exact text"><input type="checkbox" id="semantic"> Semantic</label>
       <select id="sort" aria-label="Sort">
         <option value="default">Sort: default</option>
         <option value="score">Sort: score</option>
@@ -514,10 +515,18 @@
   }
 
   const DECIDED = ["selected", "building", "hosted", "parked", "rejected"];
+  let semRank = null;  // id -> rank from /api/search when semantic search is on
   const F = {
     get q() { return $("q").value.trim().toLowerCase(); },
+    get semantic() { return $("semantic").checked && this.q && semRank; },
     match(i) {
       const q = this.q;
+      if (this.semantic) {
+        if (!(i.id in semRank)) return false;
+        if ($("onlyRun").checked && !i.touched) return false;
+        if ($("mine").checked && i.source !== "michael") return false;
+        return !$("kind").value || i.kind === $("kind").value;
+      }
       if ($("onlyRun").checked && !i.touched) return false;
       if ($("mine").checked && i.source !== "michael") return false;
       if ($("kind").value && i.kind !== $("kind").value) return false;
@@ -530,6 +539,7 @@
         newest: (a, b) => (b.created_at || "").localeCompare(a.created_at || ""),
         title: (a, b) => String(a.title).localeCompare(String(b.title)),
       }[k];
+      if (!cmp && this.semantic) return rows.sort((a, b) => semRank[a.id] - semRank[b.id]);  // best match first
       return rows.sort(cmp || byDefault);
     },
     when(i) {
@@ -804,6 +814,8 @@
       ${d.wedge ? `<p><b>Wedge:</b> ${esc(d.wedge)}</p>` : ""}
       ${d.stage_note ? `<p><b>Stage note:</b> ${esc(d.stage_note)}</p>` : ""}
       ${scores}${d.judge_notes ? `<p class="note">${esc(d.judge_notes)}</p>` : ""}
+      <h3 style="font-size:13px;margin:16px 0 6px">Similar ideas <span class="note" style="font-weight:400">· found by hybrid search</span></h3>
+      <div class="rows" id="similar"><p class="note">Searching…</p></div>
       <h3 style="font-size:13px;margin:16px 0 0">History</h3><div class="tl">${hist}</div>
       <div class="acts">${back !== null ? `<button data-back>← Back</button>` : ""}${canDecide ? `<button data-dec="selected" class="primary">Pick it</button><button data-dec="parked">Park</button>
         <button data-dec="rejected">Reject</button>` : ""}<span class="spacer"></span><button data-close>Close</button></div>`;
@@ -812,12 +824,18 @@
     if (back === null) $("dlg").classList.remove("wide");
     if (!$("dlg").open) $("dlg").showModal();
     $("dlgBody").scrollTop = 0;
+    fetch(`/api/similar?ds=${ds}&k=5&id=${encodeURIComponent(id)}`).then(r => r.json()).then(r => {
+      if (!$("similar") || $("dlgBody").dataset.id !== id) return;
+      $("similar").innerHTML = !r.available ? `<p class="note">Retrieval is off.</p>` : (r.results || []).length
+        ? r.results.map(x => `<button type="button" class="row" data-idea="${esc(x.id)}"><span>${esc(x.title)}<small>${esc(x.outcome)}</small></span>
+            <span class="chip">${esc(x.stage || "")}</span></button>`).join("") : `<p class="note">Nothing similar.</p>`;
+    }).catch(() => {});
   }
   $("dlgBody").addEventListener("click", async e => {
     if (e.target.closest("button[data-close]")) return $("dlg").close();
     if (e.target.closest("button[data-back]")) return openPhase(Number($("dlgBody").dataset.back));
     const row = e.target.closest("[data-idea]");
-    if (row) return openIdea(row.dataset.idea, openPhaseIndex);
+    if (row) return openIdea(row.dataset.idea, $("dlgBody").dataset.view === "idea" ? ($("dlgBody").dataset.back === "" ? null : Number($("dlgBody").dataset.back)) : openPhaseIndex);
     const st = e.target.dataset.dec;
     if (!st) return;
     const text = prompt(`Why ${st === "selected" ? "pick" : st === "parked" ? "park" : "reject"} it? (your words go into every agent's brief)`, "") ?? null;
@@ -888,25 +906,39 @@
   // ---- controls ----
   function selectDs(name) {
     ds = name; prevStage = {}; moved = {}; renderGuide.html = ""; renderKilled.html = "";
+    if ($("semantic").checked && $("q").value.trim()) semanticSearch().then(() => rerender());
     $("mode").value = ds === "demo" ? "step" : "continuous";
     document.querySelectorAll("[data-ds]").forEach(x => x.setAttribute("aria-pressed", String(x.dataset.ds === ds)));
     poll();
   }
   document.querySelectorAll("[data-ds]").forEach(b => b.addEventListener("click", () => selectDs(b.dataset.ds)));
-  const FILTERS = ["q", "sort", "kind", "mine", "onlyRun"];
-  function rerender() {
+  const FILTERS = ["q", "semantic", "sort", "kind", "mine", "onlyRun"];
+  let semTimer = null;
+  async function semanticSearch() {
+    const q = $("q").value.trim();
+    if (!$("semantic").checked || !q) { semRank = null; return; }
+    const r = await fetch(`/api/search?ds=${ds}&k=30&q=${encodeURIComponent(q)}`).then(x => x.json()).catch(() => ({results: []}));
+    semRank = Object.fromEntries((r.results || []).map((x, n) => [x.id, n]));
+  }
+  function rerender(ev) {
+    if (ev && (ev.target.id === "q" || ev.target.id === "semantic") && $("semantic").checked) {
+      clearTimeout(semTimer);
+      semTimer = setTimeout(async () => { await semanticSearch(); rerender(); }, 300);
+    }
+    if (!$("semantic").checked) semRank = null;
     if (last && last.available) { renderBoard(last); renderLeader(last); renderDecided(last); renderKilled(last); }
     try { localStorage.setItem("fishtank:filters", JSON.stringify(Object.fromEntries(FILTERS.map(id =>
       [id, $(id).type === "checkbox" ? $(id).checked : $(id).value])))); } catch {}
   }
   for (const id of FILTERS) $(id).addEventListener(id === "q" ? "input" : "change", rerender);
   $("clearFilters").addEventListener("click", () => {
-    $("q").value = ""; $("sort").value = "default"; $("kind").value = ""; $("mine").checked = false; $("onlyRun").checked = false; rerender();
+    $("q").value = ""; $("semantic").checked = false; semRank = null; $("sort").value = "default"; $("kind").value = ""; $("mine").checked = false; $("onlyRun").checked = false; rerender();
   });
   try {
     const saved = JSON.parse(localStorage.getItem("fishtank:filters") || "{}");
     for (const id of FILTERS) if (id in saved) $(id)[$(id).type === "checkbox" ? "checked" : "value"] = saved[id];
   } catch {}
+  if ($("semantic").checked && $("q").value.trim()) semanticSearch().then(() => rerender());
   for (const id of ["leader", "decided"]) $(id).addEventListener("click", e => { const r = e.target.closest("[data-id]"); if (r) openIdea(r.dataset.id); });
   $("killed").addEventListener("click", e => { const r = e.target.closest("tr[data-id]"); if (r) openIdea(r.dataset.id); });
   $("killed").addEventListener("keydown", e => { const r = e.target.closest("tr[data-id]"); if (r && e.key === "Enter") openIdea(r.dataset.id); });
