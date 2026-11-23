@@ -508,6 +508,26 @@ class PhaseDetails(unittest.TestCase):
             shutil.rmtree(tmp)
 
 
+class Renames(unittest.TestCase):
+    def test_reviser_keeps_the_original_title_once(self):
+        tmp, store = temp_store()
+
+        def rename(role, payload, schema, *, node, budget, **kw):
+            budget.record(node, llm.Usage(calls=1))
+            return {"ideas": [{"id": i["id"], "title": i["title"] + " Deluxe", "pitch": "new", "kind": "game",
+                               "search_phrase": "x", "change": "renamed", "pivot": False} for i in payload["ideas"]]}
+
+        try:
+            with mock.patch.object(llm, "call", rename), mock.patch.object(config, "OUT", tmp / "out"):
+                graph.run(nodes.Ctx(store, llm.Budget(), RUN), {"run_id": RUN, "run_type": "discovery", "done": [],
+                          "judge_scope": "validated", "plan": graph.make_plan("discovery", ["reviser"])}, engine="plain")
+            d = store.idea("river-run")
+            self.assertEqual((d["title"], d["original_title"]), ("River Run Deluxe", "River Run"))
+            self.assertEqual(d["rev_count"], 2)
+        finally:
+            shutil.rmtree(tmp)
+
+
 class StepMode(unittest.TestCase):
     def test_each_step_waits_until_released(self):
         import threading

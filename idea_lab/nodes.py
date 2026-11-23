@@ -446,6 +446,8 @@ def reviser_node(state: dict, ctx: Ctx) -> dict:
                          "revisions": [*(d.get("revisions") or []), {"v": rc, **rev}], "rev_count": rc}
                 if not d.get("original_pitch"):
                     patch["original_pitch"] = d.get("pitch")
+                if not d.get("original_title") and patch["title"] != d.get("title"):
+                    patch["original_title"] = d.get("title")
                 ctx.store.update_idea(i, patch, by="reviser", note=r.get("change", ""))
                 ctx.bump({"revised": 1}, "reviser", {"in": 1, "revised": 1})
             n += 1

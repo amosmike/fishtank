@@ -102,6 +102,12 @@
   /* tabs */
   .tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); margin: -4px 0 14px; align-items: center; flex-wrap: wrap; }
   .list { display: grid; gap: 8px; }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; margin: -4px 0 14px; }
+  .toolbar input[type=search] { font: inherit; color: inherit; background: var(--surface); border: 1px solid var(--line);
+                                border-radius: 8px; padding: 6px 10px; width: min(320px, 100%); }
+  .toolbar.off { display: none; }
+  .was { font-weight: 500; color: var(--muted); font-size: 12px; margin-left: 6px; }
+  .upd { font: 11px var(--mono); color: var(--muted); margin-left: 6px; }
   .lrow { display: grid; grid-template-columns: 44px 64px minmax(0, 1fr) 230px; gap: 14px; align-items: center; text-align: left;
           width: 100%; background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 10px 14px; }
   .lrow:hover { border-color: var(--accent); }
@@ -274,8 +280,24 @@
       <button type="button" class="tab" role="tab" id="tab-decided" aria-controls="pane-decided" aria-selected="false">Decided <span class="count" id="decidedCount">0</span></button>
       <button type="button" class="tab" role="tab" id="tab-killed" aria-controls="pane-killed" aria-selected="false">Killed <span class="count" id="killedCount">0</span></button>
       <button type="button" class="tab" role="tab" id="tab-log" aria-controls="pane-log" aria-selected="false">Log <span class="count" id="logCount">0</span></button>
+    </div>
+    <div class="toolbar" id="toolbar">
+      <input type="search" id="q" placeholder="Search titles, ids, pitches…" aria-label="Search ideas">
+      <select id="sort" aria-label="Sort">
+        <option value="default">Sort: default</option>
+        <option value="score">Sort: score</option>
+        <option value="updated">Sort: recently updated</option>
+        <option value="newest">Sort: newest</option>
+        <option value="title">Sort: A–Z</option>
+      </select>
+      <select id="kind" aria-label="Kind">
+        <option value="">All kinds</option><option value="game">Games</option><option value="tool">Tools</option>
+        <option value="reference">Reference</option><option value="calculator">Calculators</option>
+      </select>
+      <label class="tog"><input type="checkbox" id="mine"> Owner's ideas</label>
+      <label class="tog"><input type="checkbox" id="onlyRun"> Touched by the last run</label>
       <span class="spacer"></span>
-      <label class="tog"><input type="checkbox" id="onlyRun"> Only ideas this run touched</label>
+      <button type="button" id="clearFilters">Clear</button>
     </div>
     <div id="pane-ideas" role="tabpanel" aria-labelledby="tab-ideas">
       <div class="board" id="board"></div>
@@ -460,13 +482,12 @@
                    i.kind ? `<span class="chip">${esc(i.kind)}</span>` : "", i.lane === "big" ? `<span class="chip">big</span>` : "",
                    i.rev_count ? `<span class="chip">rev ×${i.rev_count}</span>` : "",
                    ["selected","parked","rejected","building","hosted"].includes(i.stage) ? `<span class="chip">${esc(i.stage)}</span>` : ""].join("");
-    return `<div class="${cls}" data-id="${esc(i.id)}" tabindex="0"><div class="t">${esc(i.title)}</div>
+    return `<div class="${cls}" data-id="${esc(i.id)}" tabindex="0"><div class="t">${esc(i.title)}${was(i)}</div>
       <div class="chips">${chips}</div><div class="s">${esc(i.last.by || "")}: ${esc(i.last.note || "")}</div></div>`;
   }
 
   function renderBoard(st) {
-    const only = $("onlyRun").checked;
-    let ideas = st.ideas.filter(i => !only || i.touched);
+    let ideas = st.ideas.filter(i => F.match(i));
     const now = Date.now();
     for (const i of st.ideas) {
       if (prevStage[i.id] && prevStage[i.id] !== i.stage) moved[i.id] = now;
@@ -484,6 +505,30 @@
   }
 
   const DECIDED = ["selected", "building", "hosted", "parked", "rejected"];
+  const F = {
+    get q() { return $("q").value.trim().toLowerCase(); },
+    match(i) {
+      const q = this.q;
+      if ($("onlyRun").checked && !i.touched) return false;
+      if ($("mine").checked && i.source !== "michael") return false;
+      if ($("kind").value && i.kind !== $("kind").value) return false;
+      return !q || [i.title, i.original_title, i.id, i.pitch].some(x => String(x || "").toLowerCase().includes(q));
+    },
+    sort(rows, byDefault) {
+      const k = $("sort").value, cmp = {
+        score: (a, b) => (b.total ?? -1) - (a.total ?? -1) || a.id.localeCompare(b.id),
+        updated: (a, b) => (b.updated_at || "").localeCompare(a.updated_at || ""),
+        newest: (a, b) => (b.created_at || "").localeCompare(a.created_at || ""),
+        title: (a, b) => String(a.title).localeCompare(String(b.title)),
+      }[k];
+      return rows.sort(cmp || byDefault);
+    },
+    when(i) {
+      const k = $("sort").value, t = k === "newest" ? i.created_at : k === "updated" ? i.updated_at : "";
+      return t ? `<span class="upd">${k === "newest" ? "added" : "updated"} ${esc(t.slice(0, 16).replace("T", " "))}</span>` : "";
+    },
+  };
+  const was = i => i.original_title && i.original_title !== i.title ? `<span class="was">was “${esc(i.original_title)}”</span>` : "";
   const SHORT = {demand: "dem", audience: "aud", gap: "gap", build: "bld", share: "shr", ads: "ads", fun: "fun"};
   function bars(sc) {
     if (!sc) return `<div class="note" style="font-size:12px">not scored yet</div>`;
@@ -492,43 +537,43 @@
   function setList(id, html) { if (html !== setList[id]) { $(id).innerHTML = html; setList[id] = html; } }
 
   function renderLeader(st) {
-    const only = $("onlyRun").checked, top = new Set(st.top6 || []);
-    const rows = st.ideas.filter(i => ["judged", "shortlisted"].includes(i.stage) && (!only || i.touched))
-                         .sort((a, b) => (b.total ?? -1) - (a.total ?? -1) || a.id.localeCompare(b.id));
+    const top = new Set(st.top6 || []);
+    const byScore = (a, b) => (b.total ?? -1) - (a.total ?? -1) || a.id.localeCompare(b.id);
+    const all = st.ideas.filter(i => ["judged", "shortlisted"].includes(i.stage)).sort(byScore);
+    const rank = Object.fromEntries(all.map((i, n) => [i.id, i.total != null ? n + 1 : null]));
+    const rows = F.sort(all.filter(i => F.match(i)), byScore);
     $("leaderCount").textContent = rows.length;
-    setList("leader", rows.length ? rows.map((i, n) => `<button type="button" class="lrow ${top.has(i.id) ? "top" : ""} ${i.touched ? "touched" : ""}" data-id="${esc(i.id)}">
-        <span class="rank">#${i.total != null ? n + 1 : "–"}</span>
+    setList("leader", rows.length ? rows.map(i => `<button type="button" class="lrow ${top.has(i.id) ? "top" : ""} ${i.touched ? "touched" : ""}" data-id="${esc(i.id)}">
+        <span class="rank">#${rank[i.id] ?? "–"}</span>
         <span class="score">${i.total ?? "–"}<small>${top.has(i.id) ? "top 6" : "/100"}</small></span>
-        <span><span class="t">${esc(i.title)}</span>
+        <span><span class="t">${esc(i.title)}</span>${was(i)}${F.when(i)}
           <span class="chips">${i.kind ? `<span class="chip">${esc(i.kind)}</span>` : ""}${i.lane === "big" ? `<span class="chip">big build</span>` : ""}${i.source === "michael" ? `<span class="chip mine">owner</span>` : ""}${i.fact ? `<span class="chip">fact-check ${esc(i.fact)}</span>` : ""}${i.touched ? `<span class="chip">this run</span>` : ""}</span>
           <span class="p">${esc(i.pitch || "")}</span></span>
         ${bars(i.scores)}</button>`).join("")
-      : `<p class="note">No judged ideas${only ? " in this run" : " yet"}.</p>`);
+      : `<p class="note">No judged ideas match.</p>`);
   }
 
   function renderDecided(st) {
-    const only = $("onlyRun").checked;
     const at = i => (i.decision && i.decision.at) || i.last.at || i.updated_at || "";
-    const rows = st.ideas.filter(i => DECIDED.includes(i.stage) && (!only || i.touched)).sort((a, b) => at(b).localeCompare(at(a)));
+    const rows = F.sort(st.ideas.filter(i => DECIDED.includes(i.stage) && F.match(i)), (a, b) => at(b).localeCompare(at(a)));
     $("decidedCount").textContent = rows.length;
     setList("decided", rows.length ? rows.map(i => {
       const d = i.decision || {}, why = [...(d.reasons || []), d.text].filter(Boolean).join(" · ");
       return `<button type="button" class="lrow dec" data-id="${esc(i.id)}">
         <span><span class="dchip ${esc(i.stage)}">${esc(i.stage)}</span></span>
         <span class="score">${i.total ?? "–"}<small>/100</small></span>
-        <span><span class="t">${esc(i.title)}</span><span class="p">${why ? "“" + esc(why) + "”" : esc(i.pitch || "")}</span></span>
+        <span><span class="t">${esc(i.title)}</span>${was(i)}${F.when(i)}<span class="p">${why ? "“" + esc(why) + "”" : esc(i.pitch || "")}</span></span>
         <span class="when">${esc(at(i).slice(0, 10))}</span></button>`;
-    }).join("") : `<p class="note">Nothing decided${only ? " in this run" : " yet"}.</p>`);
+    }).join("") : `<p class="note">No decided ideas match.</p>`);
   }
 
   function renderKilled(st) {
-    const only = $("onlyRun").checked;
-    const rows = st.ideas.filter(i => i.stage === "killed" && (!only || i.touched))
-                         .sort((a, b) => ((b.killed_at || {}).at || "").localeCompare((a.killed_at || {}).at || ""));
+    const rows = F.sort(st.ideas.filter(i => i.stage === "killed" && F.match(i)),
+                        (a, b) => ((b.killed_at || {}).at || "").localeCompare((a.killed_at || {}).at || ""));
     $("killedCount").textContent = rows.length;
-    const html = rows.length ? rows.map(i => `<tr data-id="${esc(i.id)}" tabindex="0"><td><b>${esc(i.title)}</b>${i.touched ? ` <span class="chip">this run</span>` : ""}</td>
+    const html = rows.length ? rows.map(i => `<tr data-id="${esc(i.id)}" tabindex="0"><td><b>${esc(i.title)}</b>${was(i)}${i.touched ? ` <span class="chip">this run</span>` : ""}</td>
         <td>${esc(i.stage_note || "")}</td><td>${esc((i.killed_at || {}).by || "")}</td><td class="when">${esc(((i.killed_at || {}).at || "").slice(0, 16).replace("T", " "))}</td></tr>`).join("")
-      : `<tr><td colspan="4" class="note">Nothing killed${only ? " in this run" : ""}.</td></tr>`;
+      : `<tr><td colspan="4" class="note">No killed ideas match.</td></tr>`;
     if (html !== renderKilled.html) { $("killed").innerHTML = html; renderKilled.html = html; }
   }
 
@@ -777,6 +822,7 @@
 
   // ---- tabs ----
   function showTab(name) {
+    $("toolbar").classList.toggle("off", name === "log");
     for (const t of ["ideas", "leader", "decided", "killed", "log"]) {
       $("tab-" + t).setAttribute("aria-selected", String(t === name));
       $("pane-" + t).hidden = t !== name;
@@ -798,7 +844,20 @@
     poll();
   }
   document.querySelectorAll("[data-ds]").forEach(b => b.addEventListener("click", () => selectDs(b.dataset.ds)));
-  $("onlyRun").addEventListener("change", () => last && (renderBoard(last), renderLeader(last), renderDecided(last), renderKilled(last)));
+  const FILTERS = ["q", "sort", "kind", "mine", "onlyRun"];
+  function rerender() {
+    if (last && last.available) { renderBoard(last); renderLeader(last); renderDecided(last); renderKilled(last); }
+    try { localStorage.setItem("fishtank:filters", JSON.stringify(Object.fromEntries(FILTERS.map(id =>
+      [id, $(id).type === "checkbox" ? $(id).checked : $(id).value])))); } catch {}
+  }
+  for (const id of FILTERS) $(id).addEventListener(id === "q" ? "input" : "change", rerender);
+  $("clearFilters").addEventListener("click", () => {
+    $("q").value = ""; $("sort").value = "default"; $("kind").value = ""; $("mine").checked = false; $("onlyRun").checked = false; rerender();
+  });
+  try {
+    const saved = JSON.parse(localStorage.getItem("fishtank:filters") || "{}");
+    for (const id of FILTERS) if (id in saved) $(id)[$(id).type === "checkbox" ? "checked" : "value"] = saved[id];
+  } catch {}
   for (const id of ["leader", "decided"]) $(id).addEventListener("click", e => { const r = e.target.closest("[data-id]"); if (r) openIdea(r.dataset.id); });
   $("killed").addEventListener("click", e => { const r = e.target.closest("tr[data-id]"); if (r) openIdea(r.dataset.id); });
   $("killed").addEventListener("keydown", e => { const r = e.target.closest("tr[data-id]"); if (r && e.key === "Enter") openIdea(r.dataset.id); });
