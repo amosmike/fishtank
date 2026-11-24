@@ -12,6 +12,7 @@ from unittest import mock
 
 ROOT = Path(__file__).resolve().parent.parent
 os.environ.setdefault("IDEA_LAB_EMBEDDER", "hash")  # retrieval in tests: deterministic, no model download
+os.environ.setdefault("IDEA_LAB_RERANKER", "overlap")  # the stand-in cross-encoder: no download
 sys.path.insert(0, str(ROOT))
 
 from idea_lab import config, decisions, evals, graph, llm, nodes, rules  # noqa: E402
@@ -199,6 +200,13 @@ class Graph(unittest.TestCase):
         self.assertEqual(self.preds("judge"), {"logistics", "demand"})          # judge scores everything on one scale
         self.assertNotIn("demand", self.ancestors("logistics"))
         self.assertNotIn("logistics", self.ancestors("demand"))
+
+    def test_second_pass_follows_critic2_and_precedes_the_checks(self):
+        self.assertEqual(self.preds("reviser_again"), {"critic2"})
+        self.assertEqual(self.preds("critic2_again"), {"reviser_again"})
+        for n in ("logistics", "demand"):
+            self.assertEqual(self.preds(n), {"critic2_again"}, n)
+        self.assertEqual([graph.DAG[n][0] for n in graph.SECOND_PASS], ["reviser", "critic2"])
 
     def test_only_plan(self):
         self.assertEqual(graph.make_plan("discovery", ["judge"]), ["memory", "judge", "close"])
@@ -424,6 +432,14 @@ class FullRunWithSimulatedAgents(unittest.TestCase):
                 self.assertEqual(stuck, [], engine)
                 if not run.get("stopped_reason"):  # and every revision made in the run was checked by a critic
                     self.assertEqual([i for i, d in after.items() if memory.needs_critic2(d)], [], engine)
+                # retrieval is recorded per step for the dashboard; the judge never retrieves
+                rv = run.get("retrieval") or {}
+                self.assertTrue({"scouts", "critic1"} <= set(rv), set(rv))
+                self.assertNotIn("judge", rv)
+                self.assertEqual(run["retrieval_config"]["reranker"], "overlap")
+                for node, entries in rv.items():
+                    for e in entries:
+                        self.assertLessEqual(set(e.get("cited") or []), {h["id"] for h in e["hits"]}, node)
             finally:
                 shutil.rmtree(tmp)
 
@@ -450,7 +466,7 @@ class IdleSteps(unittest.TestCase):
                                 "plan": graph.make_plan("discovery", ["critic1", "reviser", "critic2"])}, engine="plain")
             st = {n: v["status"] for n, v in store.run(RUN)["nodes"].items()}
             self.assertEqual(st["critic1_queued"], "done")  # the owner's idea was critiqued: live
-            for n in ("reviser_queued", "critic2_queued", "critic1", "reviser", "critic2"):
+            for n in ("reviser_queued", "critic2_queued", "critic1", "reviser", "critic2", *graph.SECOND_PASS):
                 self.assertEqual(st[n], "idle", n)
             self.assertEqual(st["scouts"], "off")
             self.assertNotIn("reviser", roles)
@@ -600,6 +616,53 @@ class StepMode(unittest.TestCase):
             self.assertEqual(store.run("step")["status"], "done")
         finally:
             shutil.rmtree(tmp)
+
+
+class SecondPass(unittest.TestCase):
+    """New ideas critic 2 sends back get their second revision and re-check in the same run."""
+
+    def run_with(self, verdict, engine):
+        from idea_lab import demo
+        tmp, store = temp_store()
+        def critic(round2):  # critic 1 always asks for a revision; critic 2 gives `verdict`
+            v = verdict if round2 else "revise"
+            return lambda p, r: {"ideas": [{**x, "verdict": v, "kill_reason": "", "kill_category": "",
+                                            "fixes": ["Narrow it (test)"] if v == "revise" else []}
+                                           for x in demo._critic(p, r, round2)["ideas"]]}
+        handlers = {"critic1": critic(False), "critic2": critic(True),
+                    "reviser": lambda p, r: {"ideas": [{**x, "pivot": False} for x in demo._reviser(p, r)["ideas"]]},
+                    # a logistics blocker also sends ideas back to revising; keep this test about the critics
+                    "logistics": lambda p, r: {"ideas": [{**x, "verdict": "go", "blockers": [], "fixes": []}
+                                                         for x in demo._logistics(p, r)["ideas"]]}}
+        try:
+            with mock.patch.object(config, "BACKEND", "demo"), mock.patch.object(demo, "DELAY", 0), \
+                    mock.patch.dict(demo.HANDLERS, handlers), mock.patch.object(config, "OUT", tmp / "out"), \
+                    mock.patch.object(config, "STATE", tmp / ".state"):
+                ctx = nodes.Ctx(store, llm.Budget(max_tokens=10**9, max_searches=10**6, max_usd=0), "sp")
+                store.put("runs", "sp", {"started_at": "2026-11-16T09:00:00Z", "status": "running", "log": []})
+                graph.run(ctx, {"run_id": "sp", "run_type": "discovery", "plan": graph.make_plan("discovery"),
+                                "judge_scope": "changed", "done": []}, engine=engine)
+            new = {i: d for i, d in store.ideas().items() if d.get("run_id") == "sp"}
+            return new, {n: v["status"] for n, v in store.run("sp")["nodes"].items()}
+        finally:
+            shutil.rmtree(tmp)
+
+    def test_idle_when_critic2_sends_nothing_back(self):
+        for engine in ("langgraph", "plain"):
+            new, st = self.run_with("live", engine)
+            self.assertTrue(new, engine)
+            self.assertEqual({d["rev_count"] for d in new.values()}, {1}, engine)
+            self.assertNotIn("revising", {d["stage"] for d in new.values()}, engine)
+            self.assertEqual([st[n] for n in graph.SECOND_PASS], ["idle", "idle"], engine)
+
+    def test_sent_back_ideas_are_settled_in_the_same_run_within_the_cap(self):
+        for engine in ("langgraph", "plain"):
+            new, st = self.run_with("revise", engine)
+            self.assertTrue(new, engine)
+            self.assertEqual({d["stage"] for d in new.values()}, {"killed"}, engine)
+            self.assertEqual({d["rev_count"] for d in new.values()}, {rules.MAX_REVISIONS}, engine)
+            self.assertTrue(all("after 2 revisions" in d["stage_note"] for d in new.values()), engine)
+            self.assertEqual([st[n] for n in graph.SECOND_PASS], ["done", "done"], engine)
 
 
 class BudgetAndConcurrency(unittest.TestCase):

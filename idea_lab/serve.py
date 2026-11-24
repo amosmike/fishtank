@@ -170,8 +170,8 @@ def node_detail(store: Store, nodes: list[str]) -> dict:
                     "model": config.ROLE_MODEL.get(NODE_ROLE[step]) if NODE_ROLE.get(step) else None,
                     "usage": by.get(n) or {}, "log": log[-12:], "ideas": sorted(touched, key=lambda x: x["title"].lower()),
                     "preds": DAG[n][1], "calls": [c for c in trace if c.get("node") == n],
-                    **extra})
-    return {"run": run.get("_id"), "nodes": out}
+                    "retrieval": (run.get("retrieval") or {}).get(n, []), **extra})
+    return {"run": run.get("_id"), "nodes": out, "retrieval_config": run.get("retrieval_config")}
 
 def state(ds: str) -> dict:
     root = data_dir(ds)

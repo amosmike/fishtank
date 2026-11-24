@@ -69,6 +69,31 @@ class Ctx:
         with self._lock:
             self.store.update_run(self.run_id, patch)
 
+    def note_retrieval(self, for_id: str, for_title: str, query: str, hits: list[dict]) -> None:
+        """What one retrieval returned, under the graph node that asked, for the dashboard's step details."""
+        entry = {"for": for_id, "title": for_title, "query": query[:200],
+                 "hits": [{k: h.get(k) for k in ("id", "title", "score", "outcome") if h.get(k) is not None} for h in hits]}
+        with self._lock:
+            r = self.store.run(self.run_id)
+            r.setdefault("retrieval", {}).setdefault(llm.NODE.get() or "?", []).append(entry)
+            self.store.put("runs", self.run_id, r)
+
+    def note_citations(self, for_id: str, cited: list[str]) -> list[str]:
+        """Keep the ids a critic says it relied on (its `precedents`) only if this node retrieved them for
+        this idea: a critic can't cite history it wasn't shown. Returns the kept ids."""
+        node = llm.NODE.get() or "?"
+        with self._lock:
+            r = self.store.run(self.run_id)
+            entry = next((e for e in reversed((r.get("retrieval") or {}).get(node) or []) if e.get("for") == for_id), None)
+            shown = {h.get("id") for h in (entry or {}).get("hits") or []}
+            kept = [c for c in dict.fromkeys(cited) if c in shown]
+            if entry is not None:
+                entry["cited"] = kept
+                if len(kept) < len(set(cited)):
+                    entry["not_retrieved"] = [c for c in dict.fromkeys(cited) if c not in shown]
+                self.store.put("runs", self.run_id, r)
+        return kept
+
     def save_usage(self) -> None:
         self.patch_run({"usage": self.budget.to_dict()})
 
@@ -179,9 +204,18 @@ def memory_node(state: dict, ctx: Ctx) -> dict:
     classify_missing(ctx)
     if rag.available():
         from .retrieval import index_for
+        from .retrieval.rerank import get_reranker
         idx = index_for(ctx.store)
+        rr = get_reranker() if config.RETRIEVAL_MODE == "rerank" else None
+        mode = "rerank" if rr else "hybrid" if config.RETRIEVAL_MODE == "rerank" else config.RETRIEVAL_MODE
+        ctx.patch_run({"retrieval_config": {"mode": mode if idx.embedder else "bm25",
+                                            "embedder": idx.embedder.name if idx.embedder else None,
+                                            "vector_store": idx.store.name if idx.store else None,
+                                            "reranker": rr.name if rr else None, "rerank_depth": config.RERANK_DEPTH,
+                                            "ideas": len(idx.ids)}})
         ctx.log("memory", f"Retrieval index: {len(idx.ids)} ideas, {idx.embedded_last_update} embedded "
-                          f"({idx.embedder.name if idx.embedder else 'BM25 only'})")
+                          f"({idx.embedder.name if idx.embedder else 'BM25 only'}"
+                          f"{', reranked by ' + rr.name if rr else ''})")
     ideas = ctx.store.ideas()
     q = memory.queues(ideas, ctx.now())
     ctx.log("memory", "Queues: " + ", ".join(f"{k} {len(v)}" for k, v in q.items() if k != "top6") +
@@ -262,6 +296,7 @@ def scouts_node(state: dict, ctx: Ctx) -> dict:
             d = b.get("dice") or {}
             q = " ".join([b.get("angle") or "", d.get("audience") or "", d.get("format") or "", d.get("engine") or ""])
             payload["related_ideas"] = rag.related(ctx.store, q)
+            ctx.note_retrieval(b["scout"], b.get("angle") or b["scout"], q, payload["related_ideas"])
         if b["scout"] == "trends":
             payload["brief"]["instruction"] = "Build ideas directly from the trends' idea seeds. A fading trend can't be the main evidence."
         out = llm.call("scout", payload, schemas.SCOUT, node="scouts", budget=ctx.budget)
@@ -299,7 +334,9 @@ def dedupe_node(state: dict, ctx: Ctx) -> dict:
         if rag.available():  # retrieval: each candidate with its nearest existing ideas, plus every title
             from .retrieval import doc_text
             for c in cands:
-                c["nearest_in_lab"] = [{k: v for k, v in n.items() if k != "outcome"} for n in rag.neighbours(ctx.store, doc_text(c))]
+                near = rag.neighbours(ctx.store, doc_text(c))
+                c["nearest_in_lab"] = [{k: v for k, v in n.items() if k != "outcome"} for n in near]
+                ctx.note_retrieval(c.get("title") or "?", c.get("title") or "?", doc_text(c), near)
             payload = {"candidates": cands, "all_titles": {i: d.get("title") for i, d in sorted(existing.items())}}
         else:
             payload = {
@@ -339,7 +376,7 @@ def dedupe_node(state: dict, ctx: Ctx) -> dict:
     return {"done": ["dedupe"]}
 
 
-def _critic_payload(d: dict, i: str, fill_only: bool = False, store: Store | None = None) -> dict:
+def _critic_payload(d: dict, i: str, fill_only: bool = False, store: Store | None = None, ctx: Ctx | None = None) -> dict:
     p = {"id": i, **trim(d, ["title", "pitch", "kind", "lane", "effort_weeks", "running_cost", "search_phrase",
                              "signals", "known_rivals", "direct_demand", "why_big", "v1", "source"])}
     if is_michaels(d):
@@ -349,6 +386,9 @@ def _critic_payload(d: dict, i: str, fill_only: bool = False, store: Store | Non
         p.update(trim(d, ["competitors", "wedge", "serp_note"]))
     if store is not None and rag.available():
         p["similar_past"] = rag.precedents(store, i)
+        if ctx is not None:
+            from .retrieval import doc_text
+            ctx.note_retrieval(i, d.get("title") or i, doc_text(d), p["similar_past"])
     return p
 
 
@@ -360,6 +400,11 @@ def apply_critique(ctx: Ctx, iid: str, r: dict, round_no: int, fill_only: bool =
         ctx.store.update_idea(iid, patch, by=role, note="Filled wedge/serp_note for a carry-over" +
                               (f" (critic would {r.get('verdict')}: {r.get('kill_reason')})" if r.get("verdict") != "live" else ""))
         return "fill"
+    if r.get("precedents"):
+        kept = ctx.note_citations(iid, r["precedents"])
+        if len(kept) < len(set(r["precedents"])):
+            ctx.log(role, f"{iid}: dropped cited ids it wasn't shown: {sorted(set(r['precedents']) - set(kept))}")
+        r = {**r, "precedents": kept}
     verdict = r.get("verdict", "revise")
     stage, note = critic_outcome(d, verdict, r.get("kill_reason", ""), r.get("kill_category", ""), round_no)
     patch = {k: r[k] for k in CRITIC_FIELDS if r.get(k) not in (None, "", [])}
@@ -389,7 +434,7 @@ def critic1_node(state: dict, ctx: Ctx) -> dict:
     taste = memory.taste_summary(ideas)
 
     def one(batch):
-        payload = {"ideas": [_critic_payload(ideas[i], i, fill, ctx.store) for i, fill in batch], "taste": taste}
+        payload = {"ideas": [_critic_payload(ideas[i], i, fill, ctx.store, ctx) for i, fill in batch], "taste": taste}
         out = llm.call("critic1", payload, schemas.CRITIC, node="critic1", budget=ctx.budget)
         fills = {i: f for i, f in batch}
         res = []
@@ -488,7 +533,7 @@ def critic2_node(state: dict, ctx: Ctx) -> dict:
     def payload_for(i):
         d = ideas[i]
         r1 = critique(d, "critique")
-        p = _critic_payload(d, i, store=ctx.store)
+        p = _critic_payload(d, i, store=ctx.store, ctx=ctx)
         p["change"] = ((d.get("revisions") or [{}])[-1]).get("change", "")
         p["round1"] = {**trim(r1, ["verdict", "kill_reason", "fixes", "wedge", "serp_note", "text"]),
                        "competitors": [trim(c, ["name", "url", "weakness"]) for c in (r1.get("competitors") or d.get("competitors") or [])][:6]}

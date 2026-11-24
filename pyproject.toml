@@ -11,8 +11,9 @@ dependencies = [
 # The LangGraph engine (checkpointed, resumable). Without it, `--engine plain` runs the same nodes
 # in order and resumes from the run file.
 graph = ["langgraph>=0.4", "langgraph-checkpoint-sqlite>=2"]
-# Local embeddings for retrieval (ONNX runtime, no PyTorch). Without it, search uses BM25 only.
-rag = ["fastembed>=0.4", "numpy>=1.26"]
+# Local embeddings and reranking (ONNX runtime, no PyTorch) and the Qdrant vector store. Without
+# fastembed, search uses BM25 only; without qdrant-client, vectors are searched exactly in NumPy.
+rag = ["fastembed>=0.4", "numpy>=1.26", "qdrant-client>=1.12"]
 all = ["fishtank[graph,rag]"]
 
 [tool.setuptools]

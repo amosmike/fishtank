@@ -10,6 +10,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 os.environ.setdefault("IDEA_LAB_EMBEDDER", "hash")  # retrieval in tests: deterministic, no model download
+os.environ.setdefault("IDEA_LAB_RERANKER", "overlap")  # the stand-in cross-encoder: no download
 sys.path.insert(0, str(ROOT))
 
 from idea_lab import dice, rules  # noqa: E402

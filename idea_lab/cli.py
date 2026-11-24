@@ -46,6 +46,11 @@ def estimate(store: Store, plan: list[str], run_type: str, judge_scope: str) -> 
     add("reviser", "reviser", math.ceil(rv / 10), f"~{rv} ideas ({len(q['reviser'])} due now)")
     c2 = (len(q["critic2"]) + rv) if "critic2" in plan else 0
     add("critic2", "critic2", math.ceil(c2 / config.CRITIC_BATCH), f"~{c2} ideas")
+    if "reviser" in plan and "critic2" in plan:  # the second pass: critic 2 sends back roughly 1 in 2 new ideas
+        rv2 = round(new * 0.6 * 0.5)
+        rows += [{"node": "reviser_again", "role": "reviser", "calls": math.ceil(rv2 / 10), "items": f"~{rv2} sent back by critic 2"},
+                 {"node": "critic2_again", "role": "critic2", "calls": math.ceil(rv2 / config.CRITIC_BATCH), "items": f"~{rv2} ideas"}]
+        rows = [r for r in rows if r["calls"] > 0]
     lg = min(config.LOGISTICS_TARGETS, len(q["logistics"]) + round(new * 0.5))
     add("logistics", "logistics", math.ceil(lg / config.LOGISTICS_BATCH), f"~{lg} ideas ({len(q['logistics'])} due now)")
     add("demand", "demand", int(bool(q["demand"]) or new > 0), f"{len(q['demand'])} targets now")
@@ -64,13 +69,13 @@ def estimate(store: Store, plan: list[str], run_type: str, judge_scope: str) -> 
 
 
 def print_estimate(rows: list[dict]) -> None:
-    print(f"{'node':<10} {'model':<18} {'calls':>5} {'~tokens':>9} {'≤searches':>9} {'~$':>6}  what")
+    print(f"{'node':<13} {'model':<18} {'calls':>5} {'~tokens':>9} {'≤searches':>9} {'~$':>6}  what")
     for r in rows:
-        print(f"{r['node']:<10} {r['model']:<18} {r['calls']:>5} {r['tokens']:>9,} {r['searches_max']:>9} {r['usd']:>6.2f}  {r['items']}")
+        print(f"{r['node']:<13} {r['model']:<18} {r['calls']:>5} {r['tokens']:>9,} {r['searches_max']:>9} {r['usd']:>6.2f}  {r['items']}")
     t = sum(r["tokens"] for r in rows)
     s = sum(r["searches_max"] for r in rows)
     usd = sum(r["usd"] for r in rows)
-    print(f"{'TOTAL':<10} {'':<18} {sum(r['calls'] for r in rows):>5} {t:>9,} {s:>9} {usd:>6.2f}")
+    print(f"{'TOTAL':<13} {'':<18} {sum(r['calls'] for r in rows):>5} {t:>9,} {s:>9} {usd:>6.2f}")
     print(f"Budget: {config.MAX_TOKENS_PER_RUN:,} tokens, {config.MAX_SEARCHES_PER_RUN} searches, "
           f"${config.MAX_USD_PER_RUN:.2f} (the run skips to judge -> close when any is hit). "
           f"Baseline: the 21–22 Nov run used ~2M tokens and ~25 agents.")

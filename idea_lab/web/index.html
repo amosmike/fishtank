@@ -208,6 +208,16 @@
   .task h3 { margin: 0; font-size: 15px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
   .task .meta { font: 11.5px var(--mono); color: var(--muted); margin: 4px 0 8px; }
   .task p { margin: 0 0 8px; font-size: 13px; }
+  .rag { border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 0 8px 8px 0; padding: 8px 10px; margin: 10px 0; }
+  .rag p { margin: 0 0 4px; }
+  .rag .how { font: 11.5px var(--mono); color: var(--muted); }
+  .rag details { margin-top: 6px; }
+  .rag details summary { color: var(--ink); }
+  .rag ol { margin: 4px 0 2px; padding-left: 22px; font-size: 12.5px; }
+  .rag ol li { margin: 2px 0; }
+  .rag ol button { all: unset; cursor: pointer; text-decoration: underline; text-decoration-color: var(--line); }
+  .rag ol small { color: var(--muted); display: block; }
+  .chip.cited { background: var(--accent); color: var(--surface); }
   .task h4 { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 10px 0 4px; }
   .task ul { margin: 0; padding-left: 18px; font-size: 13px; }
   .task li { margin: 2px 0; }
@@ -362,7 +372,7 @@
     ["Prepare", "Load data, apply decisions, build the work queues", ["memory"]],
     ["Find new ideas", "Trends, scouts and dedupe", ["trends", "scouts", "dedupe"]],
     ["Critique & revise", "Starts on ideas already waiting, alongside step 2",
-      ["critic1_queued", "reviser_queued", "critic2_queued", "critic1", "reviser", "critic2"]],
+      ["critic1_queued", "reviser_queued", "critic2_queued", "critic1", "reviser", "critic2", "reviser_again", "critic2_again"]],
     ["Check", "Logistics and demand, side by side", ["logistics", "demand"]],
     ["Rank", "Blind judge, then fact-check", ["judge", "factcheck"]],
     ["Wrap up", "Counts, lessons and the digest", ["close"]],
@@ -382,6 +392,8 @@
     critic1: ["Critic 1", "Tries to kill each new idea and only passes it with evidence: real competitors and their weaknesses, who ranks for the search, and one concrete way to win. Verdict: live, revise (with fixes) or kill.", "mid model + web search, batches of 4"],
     reviser: ["Reviser", "Rewrites the ideas critic 1 sent back: more specific, never blander. A pivot to a different user or problem becomes a new idea.", "small model, no web"],
     critic2: ["Critic 2", "A fresh critic checks each revision with new searches. A third \"revise\" counts as a kill.", "mid model + web search"],
+    reviser_again: ["Reviser, second pass", "Rewrites the new ideas critic 2 sent back, so they don't wait in Revising for the next run. This is their second and last revision. Nothing to do when critic 2 sent none back.", "small model, no web"],
+    critic2_again: ["Critic 2, second pass", "Checks the second revisions. Another \"revise\" is a kill under the 2-revision cap, so every new idea leaves the run live or killed.", "mid model + web search"],
     logistics: ["Logistics", "Code runs first: domain lookups, a check that every cited link resolves, and the licence pages fetched as text. Then the model judges data licences, hosting limits, running costs and effort. Runs at the same time as demand.", "code checks + mid model"],
     demand: ["Demand", "Hunts for direct evidence that people want exactly this (requests, community sizes), and for evidence against. It suggests a change to the demand score; the judge decides.", "mid model + web search"],
     judge: ["Judge", "Scores each idea 0–5 on seven criteria, blind: it never sees who proposed it or how often it was revised. Code computes the total, applies the caps, limits drift without new evidence, and ranks the top 6.", "strongest model, no web"],
@@ -659,9 +671,10 @@
     {pos: {"@in": [0, 0], trends: [1, 0], scouts: [2, 0], dedupe: [3, 0], "@out": [4, 0]}, ghost: {"@in": "Prepare", "@out": "Critic 1"},
      extra: [["@in", "trends"], ["dedupe", "@out"]]},
     {pos: {"@in": [0, 0], critic1_queued: [1, 0], reviser_queued: [2, 0], critic2_queued: [3, 0],
-           "@dedupe": [0, 1], critic1: [1, 1], reviser: [2, 1], critic2: [3, 1], "@out": [4, 1]},
+           "@dedupe": [0, 1], critic1: [1, 1], reviser: [2, 1], critic2: [3, 1], reviser_again: [4, 1], critic2_again: [5, 1],
+           "@out": [6, 1]},
      ghost: {"@in": "Prepare", "@dedupe": "Dedupe", "@out": "Check"},
-     extra: [["@in", "critic1_queued"], ["@dedupe", "critic1"], ["critic2", "@out"]],
+     extra: [["@in", "critic1_queued"], ["@dedupe", "critic1"], ["critic2_again", "@out"]],
      lanes: ["Ideas already waiting", "New ideas from the scouts"]},
     {pos: {"@in": [0, 0.5], logistics: [1, 0], demand: [1, 1], "@out": [2, 0.5]}, ghost: {"@in": "Critic 2", "@out": "Judge"},
      extra: [["@in", "logistics"], ["@in", "demand"], ["logistics", "@out"], ["demand", "@out"]]},
@@ -675,7 +688,7 @@
 
   function short(n) {
     const step = (last && last.steps && last.steps[n]) || n;
-    return LABEL[step] + (n.endsWith("_queued") ? " · waiting" : "");
+    return LABEL[step] + (n.endsWith("_queued") ? " · waiting" : n.endsWith("_again") ? " · 2nd pass" : "");
   }
   function callChip(c) {
     const ok = c.ok === false ? "error" : "done", t = c.ms < 1000 ? c.ms + " ms" : (c.ms / 1000).toFixed(1) + " s";
@@ -727,6 +740,38 @@
       <div class="legend">${["done", "running", "waiting", "idle", "skipped", "error", "pending"].map(x => `<span><i class="dot ${x}"></i>${STATE[x]}</span>`).join("")}</div>`;
   }
 
+  // Where retrieval (RAG over the lab's own history) feeds each step, shown in its details.
+  const RAG = {
+    memory: "Brings the search index up to date: one embedding and one keyword document per idea. Only new or changed ideas are re-embedded.",
+    scouts: "Each scout gets the ideas most related to its brief, with what happened to each (killed and why, its score, your decision), so it builds on the lab's history instead of re-pitching it.",
+    dedupe: "Each candidate is compared with its nearest existing ideas, found by search, instead of every pitch in the lab, so the check stays the same size as the lab grows.",
+    critic1: "Each idea comes with the most similar past ideas and their outcomes. The critic must cite the ids it relied on, and can only cite what was retrieved.",
+    critic2: "Each revision comes with the most similar past ideas and their outcomes. The critic must cite the ids it relied on, and can only cite what was retrieved.",
+    judge: "No retrieval, on purpose: retrieved context carries your decisions, which would tell the judge what you think. The judge stays blind.",
+  };
+  const retOpen = new Set();  // which lookups are expanded, kept across live refreshes
+  function ragHow(c) {
+    if (!c) return "";
+    const first = c.embedder ? `hybrid: BM25 keywords + ${c.embedder} vectors${c.vector_store ? ` in ${c.vector_store}` : ""}, fused by rank (RRF)`
+                             : "BM25 keywords only (no embedder)";
+    return `${first}${c.mode === "rerank" && c.reranker ? `, top ${c.rerank_depth} re-ordered by the ${c.reranker} cross-encoder` : ""} · ${c.ideas} ideas indexed`;
+  }
+  function ragSection(t, cfg) {
+    const step = (last && last.steps && last.steps[t.node]) || t.node, about = RAG[step];
+    if (!about) return "";
+    const rs = t.retrieval || [];
+    const cited = rs.reduce((a, e) => a + (e.cited || []).length, 0);
+    const list = rs.map((e, n) => {
+      const key = `${t.node}:${e.for}`, cs = new Set(e.cited || []);
+      return `<details data-ret="${esc(key)}" ${retOpen.has(key) ? "open" : ""}><summary>${esc(e.title || e.for)} → ${e.hits.length} found${cs.size ? ` · <span class="chip cited">${cs.size} cited</span>` : ""}</summary>
+        <ol>${e.hits.map(h => `<li><button type="button" data-idea="${esc(h.id)}">${esc(h.title || h.id)}</button>
+          ${cs.has(h.id) ? `<span class="chip cited">cited</span>` : ""}${h.outcome ? `<small>${esc(h.outcome)}</small>` : ""}</li>`).join("")}</ol></details>`;
+    }).join("");
+    const counts = rs.length ? `<h4>Retrieved this run (${rs.length} lookup${rs.length === 1 ? "" : "s"}${step.startsWith("critic") ? `, ${cited} cited` : ""})</h4>${list}` : "";
+    return `<div class="rag"><h4 style="margin-top:0">Retrieval</h4><p>${esc(about)}</p>
+      ${step !== "judge" ? `<div class="how">${esc(ragHow(cfg))}</div>` : ""}${counts}</div>`;
+  }
+
   function taskDetail(t) {
     if (!t) return "";
     const s = t.status || "pending", u = t.usage || {};
@@ -748,7 +793,7 @@
     const trends = (t.trends || []).length ? `<h4>Trends found</h4><ul>${t.trends.map(x => `<li>${esc(x)}</li>`).join("")}</ul>` : "";
     return `<section class="task"><h3>${esc(INFO[t.node][0])} <span class="chip"><i class="dot ${s}"></i>${esc(STATE[s] || s)}</span></h3>
       <div class="meta">${esc(INFO[t.node][2])}${t.started_at ? " · took " + dur(t.started_at, t.ended_at) : ""}${use ? " · " + use : ""}</div>
-      <p>${esc(INFO[t.node][1])}</p><h4>What it did</h4>${what}${calls}${scouts}${trends}${ideas}</section>`;
+      <p>${esc(INFO[t.node][1])}</p>${ragSection(t, (phaseData || {}).retrieval_config)}<h4>What it did</h4>${what}${calls}${scouts}${trends}${ideas}</section>`;
   }
 
   function renderPhase() {
@@ -792,6 +837,10 @@
     const g = e.target.closest(".gnode[data-node]"); if (!g) return;
     selNode = g.dataset.node; renderPhase();
   });
+  $("dlgBody").addEventListener("toggle", e => {  // toggle doesn't bubble: listen in the capture phase
+    const k = e.target.dataset && e.target.dataset.ret; if (!k) return;
+    e.target.open ? retOpen.add(k) : retOpen.delete(k);
+  }, true);
   $("dlgBody").addEventListener("keydown", e => {
     const g = e.target.closest(".gnode[data-node]"); if (g && e.key === "Enter") { selNode = g.dataset.node; renderPhase(); }
   });

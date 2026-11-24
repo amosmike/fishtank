@@ -60,6 +60,9 @@ flowchart LR
     DD --> C1[critic 1<br/><i>LLM + web</i>]
     QC2 --> C1
     C1 --> R[reviser<br/><i>cheap LLM</i>] --> C2[critic 2<br/><i>LLM + web</i>]
+    C2 -.-> R2[reviser → critic 2<br/><i>second pass, if sent back</i>]
+    R2 --> L
+    R2 --> DH
     C2 --> L[logistics<br/><i>code checks + LLM</i>]
     C2 --> DH[demand<br/><i>LLM + web</i>]
     L --> J[judge<br/><i>blind LLM, code scores</i>]
@@ -140,7 +143,15 @@ revisions, revised-but-unchecked ideas) runs as its own branch while trends and 
 Scouts run concurrently but meet at dedupe, because dedupe has to see the whole batch to catch two
 scouts proposing the same thing and to apply the per-run caps. Logistics and demand are independent
 checks that write different fields, so they run side by side and join at the judge, which scores
-everything on one scale. Parallelism changes wall-clock time, not cost:
+everything on one scale.
+
+A waiting idea gets two passes in one run: whatever the waiting branch's critic 2 sends back goes
+through the main reviser and critic 2 as well. A new idea would get only one, leaving the ones critic 2 sends
+back in "revising" until the next run. So a second reviser → critic 2 pass takes them before the checks,
+and the 2-revision cap settles them, live or killed, in the same run. When critic 2 sends
+nothing back, the pass is idle and costs nothing.
+
+Parallelism changes wall-clock time, not cost:
 
 - every model call in the process shares one bounded pool of slots, so extra branches can't trip a
   rate limit;
@@ -199,7 +210,12 @@ own words. Retrieval over it does three jobs in the pipeline.
 | Scouts | Every existing title, plus the ideas most related to the scout's brief, with outcomes | Scouts see relevant history in full while the brief stays small as the lab grows |
 
 The judge gets none of this. It stays blind: retrieved context carries my decisions, which would leak
-the answer.
+the answer. Critics' citations are checked in code: an id the critic wasn't shown for that idea is
+dropped and logged.
+
+Every lookup is recorded in the run file under the step that made it. In the dashboard, double-click
+a phase and pick a step to see what it retrieved, for which idea, with outcomes, and which results the
+critic cited.
 
 **How search works** (`idea_lab/retrieval/`):
 
@@ -209,10 +225,16 @@ the answer.
 - **Hybrid:** the two rankings are fused with reciprocal rank fusion, which uses ranks only, so cosine
   and BM25 scores never need calibrating against each other.
 - **What gets indexed:** title, pitch, and the idea's category and core mechanic from the idea map.
-- **Exact, not approximate:** with a few hundred ideas, a matrix-vector product is exact and takes
-  microseconds. An approximate index (HNSW, IVF) or a vector database would add moving parts for no
-  gain. I'd switch to pgvector or a dedicated store at around 100k items, or once I needed filtered
-  queries across concurrent writers.
+- **Vector store:** Qdrant. Each idea is a point whose payload carries its stage, source, kind, lane
+  and date, so filters ("only ideas that existed then", "not this idea", "only killed ones") run inside
+  the query rather than in Python afterwards. By default it runs in Qdrant's local mode in memory,
+  loaded from the on-disk embedding cache when a process starts. It's in memory because local mode
+  locks its folder to one process, and the dashboard and a run are two. `IDEA_LAB_QDRANT_URL` points
+  the same code at a Qdrant server for a persistent, shared collection with an HNSW index.
+- **Why a vector database at this size:** honestly, scale doesn't need one. A few hundred normalised
+  vectors are searched exactly by a matrix-vector product in microseconds, and that exact search stays
+  in the code as the reference. Qdrant earns its place through the interface: payload filters, and a
+  client that works the same against a server. The eval checks it returns what exact search returns.
 - **Incremental:** each idea's text is hashed, only new or changed ideas are re-embedded, and vectors
   are cached on disk per embedding model.
 - **Graceful fallback:** without the embedding model it falls back to BM25, and
@@ -338,7 +360,7 @@ idea_lab/
   rules.py          scoring, caps, stability, stage transitions, protection (pure)
   llm.py            backends, structured output, usage and budget accounting
   evals.py          judge eval: taste agreement, stability, leakage control
-  retrieval/        embeddings, BM25, hybrid search (RRF), incremental index, RAG helpers, retrieval eval
+  retrieval/        embeddings, BM25, hybrid search (RRF), reranking, Qdrant store, RAG helpers, retrieval eval
   prompts/          one prompt per role + shared rules
   schemas.py        JSON schema per role
   checks/           RDAP, URL and licence-page checks (pure code)

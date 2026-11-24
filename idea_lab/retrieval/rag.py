@@ -53,16 +53,16 @@ def _brief(i: str, d: dict, pitch_len: int = 140) -> dict:
 def neighbours(store: Store, text: str, k: int | None = None) -> list[dict]:
     idx = _index(store)
     ideas = store.ideas()
-    return [_brief(i, ideas[i], 110) | {"score": round(s, 4)} for i, s in idx.search(text, k or config.DEDUPE_NEIGHBOURS) if i in ideas]
+    return [_brief(i, ideas[i], 110) | {"score": round(s, 4)} for i, s in idx.search(text, k or config.DEDUPE_NEIGHBOURS, config.RETRIEVAL_MODE) if i in ideas]
 
 
 def precedents(store: Store, idea_id: str, k: int | None = None) -> list[dict]:
     idx = _index(store)
     ideas = store.ideas()
-    return [_brief(i, ideas[i]) for i, _ in idx.similar(idea_id, k or config.CRITIC_PRECEDENTS) if i in ideas]
+    return [_brief(i, ideas[i]) for i, _ in idx.similar(idea_id, k or config.CRITIC_PRECEDENTS, config.RETRIEVAL_MODE) if i in ideas]
 
 
 def related(store: Store, text: str, k: int | None = None) -> list[dict]:
     idx = _index(store)
     ideas = store.ideas()
-    return [_brief(i, ideas[i]) for i, _ in idx.search(text, k or config.SCOUT_RELATED) if i in ideas]
+    return [_brief(i, ideas[i]) for i, _ in idx.search(text, k or config.SCOUT_RELATED, config.RETRIEVAL_MODE) if i in ideas]

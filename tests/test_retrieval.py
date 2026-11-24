@@ -5,19 +5,23 @@ import shutil
 import sys
 import tempfile
 import unittest
+import unittest.mock
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 os.environ.setdefault("IDEA_LAB_EMBEDDER", "hash")
+os.environ.setdefault("IDEA_LAB_RERANKER", "overlap")  # the stand-in cross-encoder: no download
 
 import numpy as np  # noqa: E402
 
-from idea_lab import nodes  # noqa: E402
+from idea_lab import config, llm, nodes  # noqa: E402
 from idea_lab.retrieval import evaluate, rag, rrf  # noqa: E402
 from idea_lab.retrieval.bm25 import BM25, tokens  # noqa: E402
 from idea_lab.retrieval.embed import HashEmbedder  # noqa: E402
 from idea_lab.retrieval.index import Index, doc_text, index_for  # noqa: E402
+from idea_lab.retrieval.rerank import OverlapReranker, get_reranker  # noqa: E402
+from idea_lab.retrieval.vectorstore import ExactStore, QdrantStore  # noqa: E402
 from idea_lab.store import Store  # noqa: E402
 
 SAMPLE = ROOT / "sample_data"
@@ -74,6 +78,54 @@ class IndexBehaviour(unittest.TestCase):
         idx = Index(None, None).update(self.ideas)
         self.assertEqual(idx.search("kettle price", 1, "hybrid")[0][0], "c")
 
+    def test_rerank_reorders_only_the_top_and_keeps_the_rest_in_hybrid_order(self):
+        ideas = {f"i{n}": {"title": f"Idea {n}", "pitch": "a daily guessing game" + " about tides" * (n == 7)} for n in range(30)}
+        idx = Index(HashEmbedder(), None).update(ideas)
+        hybrid = [i for i, _ in idx.search("tides guessing game", 30, "hybrid")]
+        with unittest.mock.patch.object(config, "RERANK_DEPTH", 10):
+            reranked = [i for i, _ in idx.search("tides guessing game", 30, "rerank")]
+        self.assertEqual(reranked[0], "i7")                       # the only idea with every query word
+        self.assertEqual(set(reranked[:10]), set(hybrid[:10]))    # same candidates, new order
+        self.assertEqual(reranked[10:], hybrid[10:])              # below the depth: hybrid order unchanged
+
+    def test_rerank_falls_back_to_hybrid_when_off(self):
+        idx = Index(HashEmbedder(), None).update(self.ideas)
+        with unittest.mock.patch.object(config, "RERANKER", "off"):
+            self.assertIsNone(get_reranker())
+            self.assertEqual(idx.search("county shape", 3, "rerank"), idx.search("county shape", 3, "hybrid"))
+
+    def test_overlap_reranker_scores_query_coverage(self):
+        s = OverlapReranker().score("county shape guess", ["guess the county from its shape", "birdsong"])
+        self.assertGreater(s[0], s[1])
+
+    def test_qdrant_matches_exact_search_with_filters(self):
+        ideas = {f"i{n}": {"title": f"Idea {n}", "pitch": f"guess the {w} daily", "stage": st}
+                 for n, (w, st) in enumerate([("county", "killed"), ("bird", "judged"), ("county shape", "judged"),
+                                               ("tide", "revising"), ("county map", "killed"), ("kettle", "judged")])}
+        idx = Index(HashEmbedder(), None).update(ideas)
+        self.assertIsInstance(idx.store, QdrantStore)
+        for kw in ({}, {"exclude": {"i0"}}, {"allow": {"i1", "i2", "i4"}}, {"stages": {"killed"}}):
+            got = idx._vector_ranking("guess the county", 6, **kw)
+            want = idx._vector_ranking("guess the county", 6, exact=True, **kw)
+            np.testing.assert_allclose([s for _, s in got], [s for _, s in want], atol=1e-5)  # same scores, best first
+            self.assertEqual({i for i, _ in got}, {i for i, _ in want}, kw)                      # (tied ideas may swap)
+        self.assertEqual({i for i, _ in idx.search("county", 10, "hybrid", stages={"killed"})}, {"i0", "i4"})
+
+    def test_stage_change_updates_the_payload_without_re_embedding(self):
+        idx = Index(HashEmbedder(), None).update(self.ideas)
+        self.ideas["b"] = {**self.ideas["b"], "stage": "killed"}
+        self.assertEqual(idx.update(self.ideas).embedded_last_update, 0)
+        self.assertEqual([i for i, _ in idx.search("bird song", 5, "vector", stages={"killed"})], ["b"])
+        del self.ideas["c"]
+        idx.update(self.ideas)
+        self.assertNotIn("c", [i for i, _ in idx.search("kettle", 5, "vector")])
+
+    def test_exact_store_when_qdrant_is_off(self):
+        with unittest.mock.patch.object(config, "VECTOR_STORE", "exact"):
+            idx = Index(HashEmbedder(), None).update(self.ideas)
+        self.assertIsInstance(idx.store, ExactStore)
+        self.assertEqual(idx.search("guess the county shape", 1, "vector")[0][0], "a")
+
     def test_doc_text_includes_map_tags(self):
         self.assertEqual(doc_text({"title": "T", "pitch": "P", "category": "daily game", "mechanic": "guess"}),
                          "T. P (daily game; guess)")
@@ -94,7 +146,9 @@ class EvalLabels(unittest.TestCase):
             shutil.copytree(SAMPLE, tmp / "d")
             r = evaluate.run(Store(tmp / "d"))
             self.assertEqual(set(r["results"]), {"nearest", "revision"})
-            self.assertEqual(set(r["results"]["revision"]), {"bm25", "vector", "hybrid"})
+            self.assertEqual(set(r["results"]["revision"]), {"bm25", "vector", "hybrid", "rerank"})
+            self.assertEqual(r["reranker"], "overlap")
+            self.assertEqual(r["vector_store"]["overlap@10"], 1.0)  # local Qdrant agrees with exact search
             self.assertGreaterEqual(r["results"]["revision"]["hybrid"]["n"], 1)
             self.assertIn("R@5", evaluate.table(r))
         finally:
@@ -117,6 +171,23 @@ class RagContext(unittest.TestCase):
         self.assertNotIn("river-run", ids)
         self.assertTrue(all(x["outcome"] for x in p["similar_past"]))
         self.assertNotIn("similar_past", nodes._critic_payload(self.store.idea("river-run"), "river-run"))
+
+    def test_critics_may_only_cite_what_was_retrieved(self):
+        store = self.store
+        store.put("runs", "r", {"log": []})
+        ctx = nodes.Ctx(store, llm.Budget(), "r")
+        token = llm.NODE.set("critic1")
+        try:
+            p = nodes._critic_payload(store.idea("river-run"), "river-run", store=store, ctx=ctx)
+            shown = [x["id"] for x in p["similar_past"]]
+            verdict = {"id": "river-run", "verdict": "live", "precedents": [shown[0], "made-up-idea"]}
+            nodes.apply_critique(ctx, "river-run", verdict, 1)
+        finally:
+            llm.NODE.reset(token)
+        self.assertEqual(store.idea("river-run")["critique"]["precedents"], [shown[0]])
+        entry = store.run("r")["retrieval"]["critic1"][-1]
+        self.assertEqual((entry["for"], entry["cited"], entry["not_retrieved"]), ("river-run", [shown[0]], ["made-up-idea"]))
+        self.assertEqual([h["id"] for h in entry["hits"]], shown)
 
     def test_outcome_lines(self):
         ideas = self.store.ideas()

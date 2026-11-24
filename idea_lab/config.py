@@ -97,6 +97,15 @@ RETRIEVAL = os.environ.get("IDEA_LAB_RETRIEVAL", "on") != "off"
 CRITIC_PRECEDENTS = 4      # similar past ideas given to each critic
 DEDUPE_NEIGHBOURS = 6      # nearest existing ideas per new candidate for the dedupe check
 SCOUT_RELATED = 15         # ideas most related to a scout's brief, with pitches
+# Second stage: a local cross-encoder re-orders hybrid search's top RERANK_DEPTH (retrieval/rerank.py).
+# "off" keeps plain hybrid; "overlap" is the tests' stand-in. RETRIEVAL_MODE is what the pipeline uses.
+RERANKER = os.environ.get("IDEA_LAB_RERANKER", "minilm-l6")
+RERANK_DEPTH = 20
+RETRIEVAL_MODE = os.environ.get("IDEA_LAB_RETRIEVAL_MODE", "rerank")
+# Where the vectors live (retrieval/vectorstore.py): "qdrant" (local, in memory, unless
+# IDEA_LAB_QDRANT_URL names a server) or "exact" (NumPy). Qdrant falls back to exact if not installed.
+VECTOR_STORE = os.environ.get("IDEA_LAB_VECTOR_STORE", "qdrant")
+QDRANT_URL = os.environ.get("IDEA_LAB_QDRANT_URL") or None
 
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
 CALL_TIMEOUT_S = int(os.environ.get("IDEA_LAB_CALL_TIMEOUT", 900))

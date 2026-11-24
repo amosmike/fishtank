@@ -20,10 +20,12 @@ import statistics
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 
+from .. import config
 from ..store import Store
 from .index import index_for, with_map
+from .rerank import get_reranker
 
-MODES = ("bm25", "vector", "hybrid")
+MODES = ("bm25", "vector", "hybrid", "rerank")
 KS = (1, 5, 10)
 DEPTH = 50
 
@@ -93,13 +95,51 @@ def run(store: Store) -> dict:
                 ids = [h for h, _ in hits]
                 ranks.append(ids.index(c["target"]) + 1 if c["target"] in ids else None)
             results[bench][mode] = _score(ranks)
+    store = idx.store.name if idx.store else "none"
     return {"suite": "retrieval", "at": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-            "embedder": idx.embedder.name if idx.embedder else "none (bm25 only)", "ideas": len(ideas),
+            "embedder": idx.embedder.name if idx.embedder else "none (bm25 only)",
+            "reranker": (get_reranker().name if get_reranker() else "off"), "rerank_depth": config.RERANK_DEPTH,
+            "vector_store": {"name": store, **parity(idx, cs)},
+            "ideas": len(ideas),
             "results": results}
 
 
+def parity(idx, cs: dict[str, list[dict]], k: int = 10) -> dict:
+    """Does the vector store return what exact search returns? Mean overlap of the two top-k lists over
+    every benchmark query (ideas tied on score count as the same), and the share of queries where the
+    two rankings match score for score. Qdrant's local mode
+    searches exhaustively, so expect 1.0; against a server's HNSW index this measures what the
+    approximation costs."""
+    if not idx.store or not idx.embedder:
+        return {}
+    overlaps, same = [], 0
+    for bench, items in cs.items():
+        for c in items:
+            if bench == "nearest":
+                q, allow, ex = idx.texts[idx.ids.index(c["query_id"])], c["allow"], {c["query_id"]}
+            else:
+                q, allow, ex = c["query_text"], None, None
+            a = idx._vector_ranking(q, k, allow, ex)
+            b = idx._vector_ranking(q, len(idx.ids), allow, ex, exact=True)
+            if not b:
+                continue
+            cut = b[min(k, len(b)) - 1][1] - 1e-5  # ideas tied with exact's k-th are equally correct
+            ok = {i for i, sc in b if sc >= cut}
+            want = min(k, len(b))
+            overlaps.append(sum(1 for i, _ in a if i in ok) / want)
+            same += len(a) == want and all(abs(x[1] - y[1]) <= 1e-5 for x, y in zip(a, b))
+    n = len(overlaps)
+    return {f"overlap@{k}": round(statistics.fmean(overlaps), 3) if n else None,
+            "identical": round(same / n, 3) if n else None, "queries": n}
+
+
 def table(report: dict) -> str:
-    lines = [f"Retrieval eval · {report['ideas']} ideas · embedder {report['embedder']}"]
+    lines = [f"Retrieval eval · {report['ideas']} ideas · embedder {report['embedder']}"
+             f" · reranker {report.get('reranker', 'off')} (top {report.get('rerank_depth', '?')})"]
+    vs = report.get("vector_store") or {}
+    if vs.get("queries"):
+        lines.append(f"vector store {vs['name']}: overlap@10 with exact search {vs['overlap@10']:.3f}, "
+                     f"identical top 10 on {vs['identical']:.0%} of {vs['queries']} queries")
     for bench, modes in report["results"].items():
         n = next(iter(modes.values()))["n"]
         lines.append(f"\n{bench} (n={n})" + "".join(f"{m:>10}" for m in ("R@1", "R@5", "R@10", "MRR")))

@@ -1,14 +1,18 @@
 """Wiring: the run as a DAG with parallel branches, and two engines to execute it.
 
     memory ─┬─ trends ── scouts ── dedupe ──────────────────┐
-            └─ critic1·queued ── reviser·queued ── critic2·queued ┴─ critic1 ── reviser ── critic2 ─┬─ logistics ─┬─ judge ── factcheck ── close
-                                                                                                    └─ demand ────┘
+            └─ critic1·queued ── reviser·queued ── critic2·queued ┴─ critic1 ── reviser ── critic2 ── reviser·again ── critic2·again ─┬─ logistics ─┬─ judge ── factcheck ── close
+                                                                                                                                     └─ demand ────┘
 
 - The queued branch works on what was already waiting when the run started (the owner's submitted
   ideas, due revisions, revised-but-unchecked ideas) while trends and scouts research. It doesn't
   depend on them.
 - Within one idea the order is fixed: critic 1 -> reviser -> critic 2 (critic 2 checks the reviser's
   answer to critic 1). So critic 1 and critic 2 run side by side only across different ideas.
+- Ideas waiting at the start already get two passes: whatever critic 2·queued sends back is revised
+  again by the main reviser. A new idea would get only one, so reviser·again and critic2·again give
+  the ones critic 2 sends back their second revision and re-check in the same run, and the 2-revision
+  cap decides: live or killed. When critic 2 sends nothing back they are "idle" and make no calls.
 - Scouts run in parallel with each other inside their node, and meet at dedupe: dedupe has to see the
   whole batch to catch two scouts proposing the same idea and to apply the per-run caps.
 - Logistics and demand are independent checks on the same ideas (different fields), so they run in
@@ -30,7 +34,8 @@ static and every node always runs:
 Engines:
 - "langgraph" (default when installed): StateGraph with a SQLite checkpointer, thread_id = run id.
   Parallel branches run concurrently; a run stopped by a usage limit resumes from the last finished nodes.
-- "plain": the same nodes one at a time in topological order; resume state is kept in the run file.
+- "plain": the same nodes one at a time, column by column in LAYOUT (the supersteps above, flattened);
+  resume state is kept in the run file.
 """
 from __future__ import annotations
 
@@ -58,18 +63,24 @@ DAG: dict[str, tuple[str, list[str]]] = {
     "critic1": ("critic1", ["dedupe", "critic2_queued"]),
     "reviser": ("reviser", ["critic1"]),
     "critic2": ("critic2", ["reviser"]),
-    "logistics": ("logistics", ["critic2"]),
-    "demand": ("demand", ["critic2"]),
+    "reviser_again": ("reviser", ["critic2"]),
+    "critic2_again": ("critic2", ["reviser_again"]),
+    "logistics": ("logistics", ["critic2_again"]),
+    "demand": ("demand", ["critic2_again"]),
     "judge": ("judge", ["logistics", "demand"]),
     "factcheck": ("factcheck", ["judge"]),
     "close": ("close", ["factcheck"]),
 }
-TOPO = list(DAG)  # insertion order above is a valid topological order
-# Columns for drawing the graph: nodes in the same column can run at the same time.
+# Columns: nodes in the same column run at the same time (LangGraph's supersteps). Also used to draw the graph.
 LAYOUT = [["memory"], ["trends", "critic1_queued"], ["scouts", "reviser_queued"], ["dedupe", "critic2_queued"],
-          ["critic1"], ["reviser"], ["critic2"], ["logistics", "demand"], ["judge"], ["factcheck"], ["close"]]
+          ["critic1"], ["reviser"], ["critic2"], ["reviser_again"], ["critic2_again"], ["logistics", "demand"],
+          ["judge"], ["factcheck"], ["close"]]
+# The plain engine runs column by column, like the supersteps, so the queued branch only sees what was
+# waiting at the start (it runs before the scouts' ideas exist) under either engine.
+TOPO = [n for col in LAYOUT for n in col]
 
 ALWAYS = ("memory", "close")
+SECOND_PASS = ("reviser_again", "critic2_again")  # ideas critic 2 sent back this run; idle when there are none
 
 
 def _check_dag() -> None:
@@ -79,7 +90,7 @@ def _check_dag() -> None:
         assert step in STEPS, n
         assert all(p in seen for p in preds), f"{n} listed before its predecessors"
         seen.add(n)
-    assert sorted(n for col in LAYOUT for n in col) == sorted(TOPO)
+    assert sorted(TOPO) == sorted(DAG)
 
 
 _check_dag()
