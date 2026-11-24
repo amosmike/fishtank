@@ -832,6 +832,16 @@
   }
   $("pipe").addEventListener("dblclick", e => { const c = e.target.closest(".phase"); if (c) openPhase(Number(c.dataset.phase)); });
   $("pipe").addEventListener("keydown", e => { const c = e.target.closest(".phase"); if (c && (e.key === "Enter" || e.key === " ")) { e.preventDefault(); openPhase(Number(c.dataset.phase)); } });
+  // Click outside the box (on the dimmed backdrop) to close. Only when the press also started outside,
+  // so dragging a text selection out of the box doesn't close it.
+  const outside = (e, el) => { const r = el.getBoundingClientRect();
+    return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom; };
+  let pressedOutside = false;
+  $("dlg").addEventListener("mousedown", e => { pressedOutside = e.target === $("dlg") && outside(e, $("dlg")); });
+  $("dlg").addEventListener("click", e => {
+    if (pressedOutside && e.target === $("dlg") && outside(e, $("dlg"))) $("dlg").close();
+    pressedOutside = false;
+  });
   $("dlg").addEventListener("close", () => { $("dlg").classList.remove("wide"); openPhaseIndex = null; $("dlgBody").dataset.view = ""; });
   $("dlgBody").addEventListener("click", e => {
     const g = e.target.closest(".gnode[data-node]"); if (!g) return;

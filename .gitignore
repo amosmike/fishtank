@@ -10,3 +10,5 @@ out/
 data/cache/
 # Real data: a clone of the private data repo (see README). Use sample_data/ without it.
 data/
+# Personal notes, not part of the repo
+RAG_README.md
